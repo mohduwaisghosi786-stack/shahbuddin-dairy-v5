@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="SD Dairy">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00695C"/>
+      <stop offset="0.5" stop-color="#004D40"/>
+      <stop offset="1" stop-color="#00352D"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F9DC6A"/>
+      <stop offset="0.5" stop-color="#E4AC1E"/>
+      <stop offset="1" stop-color="#C8890A"/>
+    </linearGradient>
+    <linearGradient id="milk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DDEEE9"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="15" y="15" width="482" height="482" rx="100" fill="none" stroke="url(#gold)" stroke-width="10"/>
+  <g fill="none" stroke="url(#milk)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M352 208 C352 180 308 166 258 166 C202 166 170 188 170 224 C170 262 220 268 268 274 C320 280 354 294 354 326 C354 364 304 382 252 382 C202 382 172 366 164 336"/>
+    <path d="M180 166 L180 382"/>
+    <path d="M180 166 L246 166 C334 166 366 208 366 272 C366 336 334 382 246 382 L180 382"/>
+  </g>
+  <g fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M152 424 L152 486 L172 486 C196 486 196 424 172 424 Z"/>
+    <path d="M206 486 L224 424 L242 486 M212 464 L236 464"/>
+    <path d="M260 424 L260 486"/>
+    <path d="M286 486 L286 424 L308 424 C327 424 327 452 308 452 L286 452 M308 452 L330 486"/>
+    <path d="M350 424 L366 456 L382 424 M366 456 L366 486"/>
+  </g>
+</svg>

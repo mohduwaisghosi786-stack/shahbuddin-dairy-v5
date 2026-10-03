@@ -189,329 +189,6 @@ fun ReportsScreen(
             }
         }
 
-        // FACTUAL TREND BANNER (IF AVAILABLE)
-        if (uiState.trendVsYesterdayPercent != null) {
-            val trend = uiState.trendVsYesterdayPercent!!
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (trend >= 0) colorScheme.primaryContainer.copy(alpha = 0.6f) else StatusAmber.copy(alpha = 0.15f)
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (trend >= 0) "📈" else "📉",
-                        fontSize = 13.sp
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "कल की तुलना में ${if (trend >= 0) "+$trend%" else "$trend%"} दूध वितरण (${CalculationEngine.formatLiters(uiState.totalSoldLiters)})",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colorScheme.onSurface
-                    )
-                }
-            }
-        }
-
-        // SMART DAILY ASSISTANT & FACTUAL BUSINESS ALERTS
-        if (uiState.factualAlerts.isNotEmpty() || uiState.factualObservations.isNotEmpty()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 3.dp),
-                shape = RoundedCornerShape(10.dp),
-                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(10.dp)) {
-                    if (uiState.factualAlerts.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("⚠️", fontSize = 12.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "BUSINESS ALERTS",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = StatusRed,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        uiState.factualAlerts.forEach { alert ->
-                            Text(
-                                text = "• $alert",
-                                fontSize = 11.5.sp,
-                                color = colorScheme.onSurface,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(vertical = 1.dp)
-                            )
-                        }
-                        if (uiState.factualObservations.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            HorizontalDivider(color = colorScheme.outlineVariant)
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-                    }
-
-                    if (uiState.factualObservations.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("💡", fontSize = 12.sp)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "SMART DAILY ASSISTANT",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.primary,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        uiState.factualObservations.forEach { obs ->
-                            Text(
-                                text = "• $obs",
-                                fontSize = 11.5.sp,
-                                color = colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 1.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // KEY METRIC STAT CARDS
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatCard(
-                label = "Total Milk",
-                value = CalculationEngine.formatLiters(uiState.totalSoldLiters),
-                subValue = "All Types",
-                valueColor = colorScheme.primary,
-                icon = Icons.Default.LocalDrink,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                label = "Total Bill",
-                value = CalculationEngine.formatMoney(uiState.totalBill),
-                subValue = "Cash: ${CalculationEngine.formatMoney(uiState.totalCashCollected)} | Online: ${CalculationEngine.formatMoney(uiState.totalOnlineCollected)}",
-                valueColor = colorScheme.primary,
-                icon = Icons.Default.Payments,
-                modifier = Modifier.weight(1.2f)
-            )
-            StatCard(
-                label = "Pending Due",
-                value = CalculationEngine.formatMoney(uiState.pendingDue),
-                subValue = "Route Balance",
-                valueColor = if (uiState.pendingDue > 0) StatusRed else colorScheme.primary,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // MILK BREAKDOWN & ROUTE STATUS CARDS
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Milk Type Breakdown Card
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(10.dp)) {
-                    Text(
-                        text = "MILK BREAKDOWN",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("भैंस: %.1f L".format(uiState.buffaloLiters), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        Text("गाय: %.1f L".format(uiState.cowLiters), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Lightweight Horizontal Progress Bar
-                    val totalL = (uiState.buffaloLiters + uiState.cowLiters).coerceAtLeast(0.01)
-                    val buffaloWeight = (uiState.buffaloLiters / totalL).toFloat().coerceIn(0.05f, 0.95f)
-                    val cowWeight = 1f - buffaloWeight
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(if (uiState.buffaloLiters > 0) buffaloWeight else 0.001f)
-                                .fillMaxHeight()
-                                .background(colorScheme.primary)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .weight(if (uiState.cowLiters > 0) cowWeight else 0.001f)
-                                .fillMaxHeight()
-                                .background(Color(0xFFFFB74D))
-                        )
-                    }
-                }
-            }
-
-            // Customer Route Status Card
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(10.dp)) {
-                    Text(
-                        text = "DELIVERY STATUS",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Done: ${uiState.servedCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        Text("Naaga: ${uiState.nagaCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = StatusRed)
-                        Text("Pend: ${uiState.pendingCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = StatusAmber)
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val totalCust = (uiState.customerRows.size).coerceAtLeast(1).toFloat()
-                    val doneW = (uiState.servedCount / totalCust).coerceIn(0f, 1f)
-                    val nagaW = (uiState.nagaCount / totalCust).coerceIn(0f, 1f)
-                    val pendW = (uiState.pendingCount / totalCust).coerceIn(0f, 1f)
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                    ) {
-                        if (doneW > 0) Box(modifier = Modifier.weight(doneW).fillMaxHeight().background(colorScheme.primary))
-                        if (nagaW > 0) Box(modifier = Modifier.weight(nagaW).fillMaxHeight().background(StatusRed))
-                        if (pendW > 0) Box(modifier = Modifier.weight(pendW).fillMaxHeight().background(StatusAmber))
-                    }
-                }
-            }
-        }
-
-        // EXPORT PDF & WHATSAPP REPORT BUTTONS
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedButton(
-                onClick = { viewModel.exportDailyPdf(context) },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.primary),
-                shape = RoundedCornerShape(10.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(42.dp)
-            ) {
-                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("DAILY PDF", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
-            }
-
-            Button(
-                onClick = { showWhatsAppDialog = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .weight(1.2f)
-                    .height(42.dp)
-            ) {
-                Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(5.dp))
-                Text("WHATSAPP REPORT", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
-            }
-        }
-
-
-        // SEARCH & FILTER CHIPS ROW
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Filter table...", fontSize = 12.5.sp) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
-                        }
-                    }
-                },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = colorScheme.surface,
-                    unfocusedContainerColor = colorScheme.surface,
-                    focusedBorderColor = colorScheme.primary,
-                    unfocusedBorderColor = colorScheme.outlineVariant
-                ),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.weight(1f)
-            )
-
-            val scrollState = rememberScrollState()
-            Row(
-                modifier = Modifier.horizontalScroll(scrollState),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                listOf("ALL" to "All", "SERVED" to "Served", "NAGA" to "Naaga", "PENDING" to "Pending").forEach { (key, label) ->
-                    val isSel = listFilter == key
-                    FilterChip(
-                        selected = isSel,
-                        onClick = { listFilter = key },
-                        label = { Text(label, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = colorScheme.primary,
-                            selectedLabelColor = colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                }
-            }
-        }
-
         // FILTERED CUSTOMER ROWS
         val filteredRows = uiState.customerRows.filter { r ->
             val matchesFilter = when (listFilter) {
@@ -527,21 +204,372 @@ fun ReportsScreen(
             matchesFilter && matchesSearch
         }
 
-        if (filteredRows.isEmpty()) {
-            EmptyState(
-                title = "No Customers Found",
-                message = "No records match the current filter or search."
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 12.dp,
-                    end = 12.dp,
-                    bottom = 90.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
+        // UNIFIED SMOOTH SCROLLING REPORT BODY
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = 6.dp,
+                bottom = 90.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // 1. FACTUAL TREND BANNER (IF AVAILABLE)
+            if (uiState.trendVsYesterdayPercent != null) {
+                item {
+                    val trend = uiState.trendVsYesterdayPercent!!
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (trend >= 0) colorScheme.primaryContainer.copy(alpha = 0.6f) else StatusAmber.copy(alpha = 0.15f)
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (trend >= 0) "📈" else "📉",
+                                fontSize = 13.sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "कल की तुलना में ${if (trend >= 0) "+$trend%" else "$trend%"} दूध वितरण (${CalculationEngine.formatLiters(uiState.totalSoldLiters)})",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. SMART DAILY ASSISTANT & FACTUAL BUSINESS ALERTS
+            if (uiState.factualAlerts.isNotEmpty() || uiState.factualObservations.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            if (uiState.factualAlerts.isNotEmpty()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("⚠️", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "BUSINESS ALERTS",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = StatusRed,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                uiState.factualAlerts.forEach { alert ->
+                                    Text(
+                                        text = "• $alert",
+                                        fontSize = 11.5.sp,
+                                        color = colorScheme.onSurface,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(vertical = 1.dp)
+                                    )
+                                }
+                                if (uiState.factualObservations.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    HorizontalDivider(color = colorScheme.outlineVariant)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+
+                            if (uiState.factualObservations.isNotEmpty()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("💡", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "SMART DAILY ASSISTANT",
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = colorScheme.primary,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                uiState.factualObservations.forEach { obs ->
+                                    Text(
+                                        text = "• $obs",
+                                        fontSize = 11.5.sp,
+                                        color = colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. KEY METRIC STAT CARDS
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatCard(
+                        label = "Total Milk",
+                        value = CalculationEngine.formatLiters(uiState.totalSoldLiters),
+                        subValue = "All Types",
+                        valueColor = colorScheme.primary,
+                        icon = Icons.Default.LocalDrink,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatCard(
+                        label = "Total Bill",
+                        value = CalculationEngine.formatMoney(uiState.totalBill),
+                        subValue = "Cash: ${CalculationEngine.formatMoney(uiState.totalCashCollected)} | Online: ${CalculationEngine.formatMoney(uiState.totalOnlineCollected)}",
+                        valueColor = colorScheme.primary,
+                        icon = Icons.Default.Payments,
+                        modifier = Modifier.weight(1.2f)
+                    )
+                    StatCard(
+                        label = "Pending Due",
+                        value = CalculationEngine.formatMoney(uiState.pendingDue),
+                        subValue = "Route Balance",
+                        valueColor = if (uiState.pendingDue > 0) StatusRed else colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // 4. MILK BREAKDOWN & ROUTE STATUS CARDS
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Milk Type Breakdown Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "MILK BREAKDOWN",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("भैंस: %.1f L".format(uiState.buffaloLiters), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                                Text("गाय: %.1f L".format(uiState.cowLiters), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            val totalL = (uiState.buffaloLiters + uiState.cowLiters).coerceAtLeast(0.01)
+                            val buffaloWeight = (uiState.buffaloLiters / totalL).toFloat().coerceIn(0.05f, 0.95f)
+                            val cowWeight = 1f - buffaloWeight
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(if (uiState.buffaloLiters > 0) buffaloWeight else 0.001f)
+                                        .fillMaxHeight()
+                                        .background(colorScheme.primary)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(if (uiState.cowLiters > 0) cowWeight else 0.001f)
+                                        .fillMaxHeight()
+                                        .background(Color(0xFFFFB74D))
+                                )
+                            }
+                        }
+                    }
+
+                    // Customer Route Status Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "DELIVERY STATUS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Done: ${uiState.servedCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                                Text("Naaga: ${uiState.nagaCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = StatusRed)
+                                Text("Pend: ${uiState.pendingCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = StatusAmber)
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            val totalCust = (uiState.customerRows.size).coerceAtLeast(1).toFloat()
+                            val doneW = (uiState.servedCount / totalCust).coerceIn(0f, 1f)
+                            val nagaW = (uiState.nagaCount / totalCust).coerceIn(0f, 1f)
+                            val pendW = (uiState.pendingCount / totalCust).coerceIn(0f, 1f)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                            ) {
+                                if (doneW > 0) Box(modifier = Modifier.weight(doneW).fillMaxHeight().background(colorScheme.primary))
+                                if (nagaW > 0) Box(modifier = Modifier.weight(nagaW).fillMaxHeight().background(StatusRed))
+                                if (pendW > 0) Box(modifier = Modifier.weight(pendW).fillMaxHeight().background(StatusAmber))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. EXPORT PDF & WHATSAPP REPORT BUTTONS
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.exportDailyPdf(context) },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.primary),
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("DAILY PDF", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    }
+
+                    Button(
+                        onClick = { showWhatsAppDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(42.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text("WHATSAPP REPORT", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    }
+                }
+            }
+
+            // 6. DEDICATED FULL-WIDTH SEARCH BAR
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search name, #ID, mohalla...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colorScheme.surface,
+                        unfocusedContainerColor = colorScheme.surface,
+                        focusedBorderColor = colorScheme.primary,
+                        unfocusedBorderColor = colorScheme.outlineVariant
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // 7. DEDICATED FULL-WIDTH FILTER CHIPS ROW WITH LIVE COUNTS
+            item {
+                val scrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "ALL" to "All (${uiState.customerRows.size})",
+                        "SERVED" to "Served (${uiState.servedCount})",
+                        "NAGA" to "Naaga (${uiState.nagaCount})",
+                        "PENDING" to "Pending (${uiState.pendingCount})"
+                    ).forEach { (key, label) ->
+                        val isSel = listFilter == key
+                        FilterChip(
+                            selected = isSel,
+                            onClick = { listFilter = key },
+                            label = { Text(label, fontSize = 11.5.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colorScheme.primary,
+                                selectedLabelColor = colorScheme.onPrimary
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // 8. SECTION TITLE & RECORD COUNT
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "CUSTOMER DELIVERIES (${filteredRows.size})",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+
+            // 9. CUSTOMER LIST ITEMS
+            if (filteredRows.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = "No Customers Found",
+                        message = if (searchQuery.isNotBlank()) "No records match '$searchQuery'" else "No records match the current filter."
+                    )
+                }
+            } else {
                 items(filteredRows, key = { it.customer.id }) { row ->
                     DailyReportRowCard(
                         row = row,

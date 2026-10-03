@@ -95,7 +95,7 @@ fun AppTopHeader(
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             ) {
                                 Text(
-                                    text = "V7.6",
+                                    text = "V8.0",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = colorScheme.primary

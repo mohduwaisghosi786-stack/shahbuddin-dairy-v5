@@ -51,6 +51,10 @@ import com.shahbuddindairy.app.ui.screens.ReportsViewModel
 import com.shahbuddindairy.app.ui.screens.TotalHisabScreen
 import com.shahbuddindairy.app.ui.theme.ShahbuddinDairyTheme
 
+import androidx.compose.runtime.collectAsState
+import com.shahbuddindairy.app.security.AppLockManager
+import com.shahbuddindairy.app.ui.screens.PinLockScreen
+
 data class BottomNavItem(
     val route: String,
     val title: String,
@@ -58,13 +62,37 @@ data class BottomNavItem(
 )
 
 class MainActivity : ComponentActivity() {
+    private lateinit var appLockManager: AppLockManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appLockManager = AppLockManager.getInstance(this)
         setContent {
             ShahbuddinDairyTheme {
-                MainAppNavHost()
+                val isLockEnabled by appLockManager.isAppLockEnabled.collectAsState()
+                val isUnlocked by appLockManager.isUnlocked.collectAsState()
+
+                if (isLockEnabled && !isUnlocked) {
+                    PinLockScreen(
+                        onPinEntered = { pin ->
+                            appLockManager.unlockWithPin(pin)
+                        }
+                    )
+                } else {
+                    MainAppNavHost()
+                }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        appLockManager.onAppMovedToForeground()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        appLockManager.onAppMovedToBackground()
     }
 }
 

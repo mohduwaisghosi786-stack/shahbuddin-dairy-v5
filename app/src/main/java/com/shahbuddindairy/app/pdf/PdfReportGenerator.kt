@@ -17,6 +17,7 @@ import com.shahbuddindairy.app.data.model.CustomerEntity
 import com.shahbuddindairy.app.data.model.DeliveryEntity
 import com.shahbuddindairy.app.data.model.PaymentEntity
 import com.shahbuddindairy.app.domain.CalculationEngine
+import com.shahbuddindairy.app.receipt.ReceiptData
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -601,4 +602,345 @@ object PdfReportGenerator {
             return PdfResult(false, "Daily PDF generation failed: ${e.message}")
         }
     }
+
+    /**
+     * V8.0: Generates a dedicated single delivery / payment receipt PDF.
+     */
+    fun generateSingleReceiptPdf(
+        context: Context,
+        receipt: ReceiptData
+    ): PdfResult {
+        val document = PdfDocument()
+        val now = Date()
+        val dateSuffix = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(now)
+        val safeName = receipt.customerName.replace("\\s+".toRegex(), "_").take(15)
+        val fileName = "Receipt_${receipt.customerId}_${safeName}_$dateSuffix.pdf"
+
+        try {
+            val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
+            val page = document.startPage(pageInfo)
+            val canvas = page.canvas
+
+            // Background Card
+            val bgPaint = Paint().apply {
+                color = Color.WHITE
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(20f, 20f, (PAGE_WIDTH - 20).toFloat(), (PAGE_HEIGHT - 20).toFloat(), bgPaint)
+
+            // Header Banner
+            val headerPaint = Paint().apply {
+                color = Color.rgb(74, 20, 140)
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(20f, 20f, (PAGE_WIDTH - 20).toFloat(), 130f, headerPaint)
+
+            val titlePaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 20f
+                isFakeBoldText = true
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("शाहबुद्दीन डेयरी (Shahbuddin Dairy)", (PAGE_WIDTH / 2).toFloat(), 60f, titlePaint)
+
+            val subTitlePaint = Paint().apply {
+                color = Color.rgb(225, 190, 231)
+                textSize = 13f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("वितरण व भुगतान रसीद • V8.0", (PAGE_WIDTH / 2).toFloat(), 88f, subTitlePaint)
+
+            val phonePaint = Paint().apply {
+                color = Color.rgb(209, 196, 233)
+                textSize = 11.5f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("संपर्क: ${receipt.businessPhone} ${if (receipt.upiId.isNotBlank()) "• UPI: ${receipt.upiId}" else ""}", (PAGE_WIDTH / 2).toFloat(), 112f, phonePaint)
+
+            var y = 165f
+            val labelPaint = Paint().apply {
+                color = Color.rgb(100, 116, 139)
+                textSize = 12f
+            }
+            val boldPaint = Paint().apply {
+                color = Color.rgb(15, 23, 42)
+                textSize = 13f
+                isFakeBoldText = true
+            }
+            val textPaint = Paint().apply {
+                color = Color.rgb(33, 33, 33)
+                textSize = 12.5f
+            }
+            val greenPaint = Paint().apply {
+                color = Color.rgb(22, 101, 52)
+                textSize = 13.5f
+                isFakeBoldText = true
+            }
+            val redPaint = Paint().apply {
+                color = Color.rgb(185, 28, 28)
+                textSize = 13.5f
+                isFakeBoldText = true
+            }
+            val linePaint = Paint().apply {
+                color = Color.rgb(226, 232, 240)
+                strokeWidth = 1f
+            }
+
+            // Customer Details Box
+            canvas.drawText("ग्राहक (Customer):", 45f, y, labelPaint)
+            canvas.drawText("#${receipt.customerId} ${receipt.customerName}", 180f, y, boldPaint)
+            y += 24f
+
+            canvas.drawText("दिनांक (Date):", 45f, y, labelPaint)
+            canvas.drawText(CalculationEngine.formatDateDisplay(receipt.date), 180f, y, textPaint)
+            y += 24f
+
+            if (receipt.receiptNumber.isNotBlank()) {
+                canvas.drawText("रसीद संख्या (Receipt #):", 45f, y, labelPaint)
+                canvas.drawText(receipt.receiptNumber, 180f, y, textPaint)
+                y += 24f
+            }
+
+            y += 8f
+            canvas.drawLine(45f, y, (PAGE_WIDTH - 45).toFloat(), y, linePaint)
+            y += 26f
+
+            fun drawReceiptRow(label: String, value: String, valPaint: Paint = boldPaint) {
+                canvas.drawText(label, 45f, y, labelPaint)
+                val w = valPaint.measureText(value)
+                canvas.drawText(value, (PAGE_WIDTH - 45 - w), y, valPaint)
+                y += 26f
+            }
+
+            if (receipt.milkLiters > 0.0) {
+                drawReceiptRow("दूध मात्रा (Milk Quantity):", "${CalculationEngine.formatLiters(receipt.milkLiters)} (${receipt.milkType})")
+                drawReceiptRow("दर (Rate / Liter):", CalculationEngine.formatMoney(receipt.rate) + " / L", textPaint)
+                drawReceiptRow("आज का बिल (Today's Bill):", CalculationEngine.formatMoney(receipt.billAmount))
+            }
+
+            drawReceiptRow("पिछला बकाया (Previous Due):", CalculationEngine.formatMoney(receipt.previousDue))
+            if (receipt.pbsPending > 0.0) {
+                drawReceiptRow("PBS पुरानी बही बकाया:", CalculationEngine.formatMoney(receipt.pbsPending))
+            }
+
+            val totalReq = receipt.billAmount + receipt.previousDue + receipt.pbsPending
+            y += 4f
+            canvas.drawLine(45f, y, (PAGE_WIDTH - 45).toFloat(), y, linePaint)
+            y += 24f
+            drawReceiptRow("कुल देय हिसाब (Total Required):", CalculationEngine.formatMoney(totalReq))
+
+            if (receipt.cashPaid > 0.0) {
+                drawReceiptRow("नकद प्राप्त (Cash Paid):", CalculationEngine.formatMoney(receipt.cashPaid), greenPaint)
+            }
+            if (receipt.onlinePaid > 0.0) {
+                drawReceiptRow("ऑनलाइन प्राप्त (Online Paid):", CalculationEngine.formatMoney(receipt.onlinePaid), greenPaint)
+            }
+            if (receipt.totalPaid > 0.0 && (receipt.cashPaid > 0.0 && receipt.onlinePaid > 0.0)) {
+                drawReceiptRow("कुल जमा (Total Paid):", CalculationEngine.formatMoney(receipt.totalPaid), greenPaint)
+            }
+
+            y += 4f
+            canvas.drawLine(45f, y, (PAGE_WIDTH - 45).toFloat(), y, linePaint)
+            y += 26f
+
+            if (receipt.remainingDue > 0.0) {
+                drawReceiptRow("शेष बकाया (Remaining Due):", CalculationEngine.formatMoney(receipt.remainingDue), redPaint)
+            } else {
+                drawReceiptRow("शेष बकाया (Remaining Due):", "₹0.00 (खाता चुकता ✓)", greenPaint)
+            }
+
+            if (receipt.advance > 0.0) {
+                drawReceiptRow("पेशगी / जमा (Advance):", CalculationEngine.formatMoney(receipt.advance), greenPaint)
+            }
+
+            // Footer
+            val footerPaint = Paint().apply {
+                color = Color.rgb(148, 163, 184)
+                textSize = 10.5f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("शाहबुद्दीन डेयरी सेवा में सदैव समर्पित • व्यावसायिक शुद्धता गारंटी", (PAGE_WIDTH / 2).toFloat(), (PAGE_HEIGHT - 45).toFloat(), footerPaint)
+
+            document.finishPage(page)
+
+            // Save PDF
+            val localFile = File(context.cacheDir, fileName)
+            FileOutputStream(localFile).use { out -> document.writeTo(out) }
+            document.close()
+
+            var externalUri: Uri? = null
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val itemUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (itemUri != null) {
+                    resolver.openOutputStream(itemUri)?.use { os -> localFile.inputStream().use { it.copyTo(os) } }
+                    values.clear()
+                    values.put(MediaStore.Downloads.IS_PENDING, 0)
+                    resolver.update(itemUri, values, null, null)
+                    externalUri = itemUri
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val target = File(downloadsDir, fileName)
+                localFile.copyTo(target, overwrite = true)
+                externalUri = Uri.fromFile(target)
+            }
+
+            val shareUri = try {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", localFile)
+            } catch (e: Exception) {
+                externalUri ?: Uri.fromFile(localFile)
+            }
+
+            return PdfResult(
+                success = true,
+                message = "रसीद PDF सुरक्षित सहेजी गई: $fileName",
+                uri = shareUri,
+                file = localFile,
+                fileName = fileName,
+                sizeBytes = localFile.length()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Receipt PDF generation error", e)
+            try { document.close() } catch (_: Exception) {}
+            return PdfResult(false, "रसीद PDF निर्माण असफल: ${e.message}")
+        }
+    }
+
+    /**
+     * V8.0: Generates a dedicated Monthly Customer Statement PDF.
+     */
+    fun generateMonthlyStatementPdf(
+        context: Context,
+        customer: CustomerEntity,
+        monthStr: String, // e.g. "2026-10"
+        deliveries: List<DeliveryEntity>,
+        payments: List<PaymentEntity>
+    ): PdfResult {
+        val document = PdfDocument()
+        val safeName = customer.name.replace("\\s+".toRegex(), "_").take(15)
+        val fileName = "Statement_${customer.id}_${safeName}_${monthStr.replace("-", "")}.pdf"
+
+        try {
+            val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
+            val page = document.startPage(pageInfo)
+            val canvas = page.canvas
+
+            // Header Banner
+            val headerPaint = Paint().apply {
+                color = Color.rgb(74, 20, 140)
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(20f, 20f, (PAGE_WIDTH - 20).toFloat(), 110f, headerPaint)
+
+            val titlePaint = Paint().apply {
+                color = Color.WHITE
+                textSize = 18f
+                isFakeBoldText = true
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("शाहबुद्दीन डेयरी — मासिक ग्राहक विवरण (Monthly Statement)", (PAGE_WIDTH / 2).toFloat(), 55f, titlePaint)
+
+            val subTitlePaint = Paint().apply {
+                color = Color.rgb(225, 190, 231)
+                textSize = 12f
+                textAlign = Paint.Align.CENTER
+            }
+            canvas.drawText("माह: $monthStr • ग्राहक: #${customer.id} ${customer.name}", (PAGE_WIDTH / 2).toFloat(), 82f, subTitlePaint)
+
+            var y = 135f
+            val boldPaint = Paint().apply {
+                color = Color.rgb(15, 23, 42)
+                textSize = 11.5f
+                isFakeBoldText = true
+            }
+            val textPaint = Paint().apply {
+                color = Color.rgb(51, 65, 85)
+                textSize = 11f
+            }
+            val linePaint = Paint().apply {
+                color = Color.rgb(226, 232, 240)
+                strokeWidth = 1f
+            }
+
+            // Month Deliveries & Payments
+            val monthDeliveries = deliveries.filter { it.date.startsWith(monthStr) && (it.status.equals("delivered", ignoreCase = true)) && !it.isVoid }
+            val monthPayments = payments.filter { it.date.startsWith(monthStr) && !it.isVoid }
+
+            val totalLiters = monthDeliveries.sumOf { it.liters }
+            val totalBilled = monthDeliveries.sumOf { it.totalAmount }
+            val totalPaid = monthPayments.sumOf { it.amount }
+
+            // Summary row
+            canvas.drawText("कुल वितरण: ${CalculationEngine.formatLiters(totalLiters)}", 40f, y, boldPaint)
+            canvas.drawText("कुल बिल: ${CalculationEngine.formatMoney(totalBilled)}", 190f, y, boldPaint)
+            canvas.drawText("कुल जमा: ${CalculationEngine.formatMoney(totalPaid)}", 340f, y, boldPaint)
+            y += 20f
+            canvas.drawLine(40f, y, (PAGE_WIDTH - 40).toFloat(), y, linePaint)
+            y += 18f
+
+            // Table Header
+            canvas.drawText("दिनांक (Date)", 40f, y, boldPaint)
+            canvas.drawText("विवरण (Type)", 140f, y, boldPaint)
+            canvas.drawText("मात्रा (Qty)", 250f, y, boldPaint)
+            canvas.drawText("बिल (Bill)", 350f, y, boldPaint)
+            canvas.drawText("जमा (Paid)", 460f, y, boldPaint)
+            y += 8f
+            canvas.drawLine(40f, y, (PAGE_WIDTH - 40).toFloat(), y, linePaint)
+            y += 16f
+
+            // Merge entries for table
+            data class StmtRow(val date: String, val type: String, val qty: String, val bill: String, val paid: String)
+            val rows = mutableListOf<StmtRow>()
+
+            monthDeliveries.forEach { d ->
+                rows.add(StmtRow(d.date, "दूध (${d.milkType})", CalculationEngine.formatLiters(d.liters), CalculationEngine.formatMoney(d.totalAmount), "-"))
+            }
+            monthPayments.forEach { p ->
+                rows.add(StmtRow(p.date, "भुगतान (${p.paymentMode})", "-", "-", CalculationEngine.formatMoney(p.amount)))
+            }
+            rows.sortBy { it.date }
+
+            rows.take(24).forEach { row ->
+                canvas.drawText(row.date, 40f, y, textPaint)
+                canvas.drawText(row.type, 140f, y, textPaint)
+                canvas.drawText(row.qty, 250f, y, textPaint)
+                canvas.drawText(row.bill, 350f, y, textPaint)
+                canvas.drawText(row.paid, 460f, y, textPaint)
+                y += 18f
+            }
+
+            document.finishPage(page)
+
+            val localFile = File(context.cacheDir, fileName)
+            FileOutputStream(localFile).use { out -> document.writeTo(out) }
+            document.close()
+
+            val shareUri = try {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", localFile)
+            } catch (e: Exception) {
+                Uri.fromFile(localFile)
+            }
+
+            return PdfResult(
+                success = true,
+                message = "मासिक विवरण PDF तैयार: $fileName",
+                uri = shareUri,
+                file = localFile,
+                fileName = fileName,
+                sizeBytes = localFile.length()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Monthly statement error", e)
+            try { document.close() } catch (_: Exception) {}
+            return PdfResult(false, "मासिक विवरण PDF असफल: ${e.message}")
+        }
+    }
 }
+

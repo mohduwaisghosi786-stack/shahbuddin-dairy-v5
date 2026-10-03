@@ -1,9 +1,11 @@
 package com.shahbuddindairy.app.ui.screens
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,7 +38,9 @@ import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -83,6 +87,9 @@ import com.shahbuddindairy.app.ui.components.EmptyState
 import com.shahbuddindairy.app.ui.components.MilkTypeBadge
 import com.shahbuddindairy.app.ui.components.RateBadge
 import com.shahbuddindairy.app.ui.components.StatCard
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.content.FileProvider
+import com.shahbuddindairy.app.receipt.UpiQrGenerator
 import com.shahbuddindairy.app.ui.theme.StatusRed
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,6 +99,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+enum class DueCategoryFilter(val label: String) {
+    ALL("All"),
+    DUE_0_500("₹0–₹500"),
+    DUE_500_2000("₹500–₹2k"),
+    DUE_2000_PLUS("₹2,000+"),
+    ADVANCE("Advance")
+}
 
 data class CustomerCardItem(
     val customer: CustomerEntity,
@@ -109,6 +124,14 @@ data class CustomersUiState(
     val searchQuery: String = "",
     val selectedMohalla: String = "ALL",
     val mohallas: List<String> = emptyList(),
+    val selectedDueCategory: DueCategoryFilter = DueCategoryFilter.ALL,
+    val countWithDue: Int = 0,
+    val countDue0to500: Int = 0,
+    val countDue500to2000: Int = 0,
+    val countDue2000Plus: Int = 0,
+    val countAdvance: Int = 0,
+    val upiId: String = "",
+    val payeeName: String = "Shahbuddin Dairy",
     val isLoading: Boolean = false
 )
 
@@ -121,12 +144,20 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
     private val _selectedMohalla = MutableStateFlow("ALL")
     val selectedMohalla = _selectedMohalla.asStateFlow()
 
+    private val _selectedDueCategory = MutableStateFlow(DueCategoryFilter.ALL)
+    val selectedDueCategory = _selectedDueCategory.asStateFlow()
+
     private data class BaseCustomerData(
         val allCards: List<CustomerCardItem>,
         val totalCustomersCount: Int,
         val totalMarketDue: Double,
         val totalAdvance: Double,
-        val mohallas: List<String>
+        val mohallas: List<String>,
+        val countWithDue: Int,
+        val countDue0to500: Int,
+        val countDue500to2000: Int,
+        val countDue2000Plus: Int,
+        val countAdvance: Int
     )
 
     private val baseCustomersFlow = combine(
@@ -151,6 +182,11 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
 
             var totalDue = 0.0
             var totalAdv = 0.0
+            var countWithDue = 0
+            var count0to500 = 0
+            var count500to2000 = 0
+            var count2000Plus = 0
+            var countAdv = 0
             val mohallaSet = sortedSetOf<String>()
             val cards = mutableListOf<CustomerCardItem>()
 
@@ -162,7 +198,18 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
                 val custPayments = paymentsByCust[c.id] ?: emptyList()
 
                 val bal = CalculationEngine.calculateCustomerBalance(c.id, custDelivs, custPayments)
-                if (bal > 0) totalDue += bal else if (bal < 0) totalAdv += -bal
+                if (bal > 0) {
+                    totalDue += bal
+                    countWithDue++
+                    when {
+                        bal <= 500.0 -> count0to500++
+                        bal <= 2000.0 -> count500to2000++
+                        else -> count2000Plus++
+                    }
+                } else if (bal < 0) {
+                    totalAdv += -bal
+                    countAdv++
+                }
 
                 val lastPay = CalculationEngine.getLastPayment(c.id, custDelivs, custPayments)
                 val pbs = pbsMap[c.id] ?: 0.0
@@ -183,27 +230,44 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
                 totalCustomersCount = customers.count { it.isArchived == 0 },
                 totalMarketDue = CalculationEngine.round2(totalDue),
                 totalAdvance = CalculationEngine.round2(totalAdv),
-                mohallas = listOf("ALL") + mohallaSet.toList()
+                mohallas = listOf("ALL") + mohallaSet.toList(),
+                countWithDue = countWithDue,
+                countDue0to500 = count0to500,
+                countDue500to2000 = count500to2000,
+                countDue2000Plus = count2000Plus,
+                countAdvance = countAdv
             )
         }
     }
 
     val uiState = combine(
-        baseCustomersFlow,
-        _searchQuery,
-        _selectedMohalla
-    ) { base, query, mohalla ->
+        combine(baseCustomersFlow, _searchQuery, _selectedMohalla) { base, query, mohalla ->
+            Triple(base, query, mohalla)
+        },
+        _selectedDueCategory,
+        repository.getSettingFlow("upi_id"),
+        repository.getSettingFlow("payee_name")
+    ) { (base, query, mohalla), dueCat, upiIdVal, payeeNameVal ->
         val q = query.trim()
         val filtered = base.allCards.filter { item ->
             val c = item.customer
+            val bal = item.currentBalance
             val matchesQuery = q.isBlank() ||
                     c.name.contains(q, ignoreCase = true) ||
                     c.id.toString() == q ||
+                    "#${c.id}" == q ||
                     c.phone.contains(q) ||
                     c.mohalla.contains(q, ignoreCase = true) ||
                     c.landmark.contains(q, ignoreCase = true)
             val matchesMohalla = mohalla == "ALL" || c.mohalla == mohalla
-            matchesQuery && matchesMohalla
+            val matchesDue = when (dueCat) {
+                DueCategoryFilter.ALL -> true
+                DueCategoryFilter.DUE_0_500 -> bal in 0.01..500.0
+                DueCategoryFilter.DUE_500_2000 -> bal in 500.01..2000.0
+                DueCategoryFilter.DUE_2000_PLUS -> bal > 2000.0
+                DueCategoryFilter.ADVANCE -> bal < 0.0
+            }
+            matchesQuery && matchesMohalla && matchesDue
         }
 
         CustomersUiState(
@@ -214,6 +278,14 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
             searchQuery = query,
             selectedMohalla = mohalla,
             mohallas = base.mohallas,
+            selectedDueCategory = dueCat,
+            countWithDue = base.countWithDue,
+            countDue0to500 = base.countDue0to500,
+            countDue500to2000 = base.countDue500to2000,
+            countDue2000Plus = base.countDue2000Plus,
+            countAdvance = base.countAdvance,
+            upiId = upiIdVal ?: "",
+            payeeName = payeeNameVal?.ifBlank { "Shahbuddin Dairy" } ?: "Shahbuddin Dairy",
             isLoading = false
         )
     }.stateIn(
@@ -221,6 +293,10 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
         SharingStarted.WhileSubscribed(5000),
         CustomersUiState(isLoading = true)
     )
+
+    fun onDueCategorySelected(category: DueCategoryFilter) {
+        _selectedDueCategory.value = category
+    }
 
     fun saveRouteOrder(reordered: List<CustomerEntity>, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
@@ -282,6 +358,7 @@ fun CustomersScreen(
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     var showAddDialog by remember { mutableStateOf(false) }
+    var qrCustomerItem by remember { mutableStateOf<CustomerCardItem?>(null) }
 
     Scaffold(
         floatingActionButton = {
@@ -345,11 +422,78 @@ fun CustomersScreen(
                 )
             }
 
-            // SEARCH BAR
+            // DUE RECOVERY DASHBOARD FILTER (Section 30)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "DUE MANAGEMENT (${uiState.countWithDue} WITH DUE)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+                val dueScrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(dueScrollState)
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    DueCategoryFilter.values().forEach { cat ->
+                        val isSel = uiState.selectedDueCategory == cat
+                        val badgeText = when (cat) {
+                            DueCategoryFilter.ALL -> "${uiState.totalCustomersCount}"
+                            DueCategoryFilter.DUE_0_500 -> "${uiState.countDue0to500}"
+                            DueCategoryFilter.DUE_500_2000 -> "${uiState.countDue500to2000}"
+                            DueCategoryFilter.DUE_2000_PLUS -> "${uiState.countDue2000Plus}"
+                            DueCategoryFilter.ADVANCE -> "${uiState.countAdvance}"
+                        }
+                        val containerColor = if (isSel) {
+                            when (cat) {
+                                DueCategoryFilter.DUE_2000_PLUS -> StatusRed
+                                DueCategoryFilter.DUE_500_2000 -> Color(0xFFEA580C)
+                                DueCategoryFilter.ADVANCE -> Color(0xFF16A34A)
+                                else -> colorScheme.primary
+                            }
+                        } else colorScheme.surface
+
+                        FilterChip(
+                            selected = isSel,
+                            onClick = { viewModel.onDueCategorySelected(cat) },
+                            label = {
+                                Text(
+                                    text = "${cat.label} ($badgeText)",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = containerColor,
+                                selectedLabelColor = Color.White,
+                                containerColor = colorScheme.surface,
+                                labelColor = colorScheme.onSurface
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // SEARCH BAR (Section 31: Fast, debounced, searches #ID, name, phone, mohalla, landmark)
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = { viewModel.onSearchQueryChanged(it) },
-                placeholder = { Text("Search name, phone, mohalla, landmark...", fontSize = 13.sp) },
+                placeholder = { Text("Search name, #ID, phone, mohalla, landmark...", fontSize = 13.sp) },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -375,7 +519,7 @@ fun CustomersScreen(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .padding(horizontal = 12.dp, vertical = 3.dp)
             )
 
             // MOHALLA CHIPS ROW
@@ -424,7 +568,7 @@ fun CustomersScreen(
                     title = "No Customers Found",
                     message = if (uiState.searchQuery.isNotBlank())
                         "No customer matched \"${uiState.searchQuery}\""
-                    else "No customers found in this Mohalla filter."
+                    else "No customers found in this filter."
                 )
             } else {
                 LazyColumn(
@@ -445,6 +589,18 @@ fun CustomersScreen(
                                     val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${item.customer.phone}"))
                                     context.startActivity(intent)
                                 }
+                            },
+                            onWhatsApp = {
+                                shareWhatsAppPaymentReminder(
+                                    context = context,
+                                    customer = item.customer,
+                                    balance = item.currentBalance,
+                                    upiId = uiState.upiId,
+                                    payeeName = uiState.payeeName
+                                )
+                            },
+                            onShowQr = {
+                                qrCustomerItem = item
                             }
                         )
                     }
@@ -472,6 +628,17 @@ fun CustomersScreen(
                 }
             )
         }
+
+        // CUSTOMER DUE QR DIALOG (Section 35 & 38)
+        qrCustomerItem?.let { item ->
+            CustomerDueQrDialog(
+                customer = item.customer,
+                balance = item.currentBalance,
+                upiId = uiState.upiId,
+                payeeName = uiState.payeeName,
+                onDismiss = { qrCustomerItem = null }
+            )
+        }
     }
 }
 
@@ -479,7 +646,9 @@ fun CustomersScreen(
 fun CustomerListItemCard(
     item: CustomerCardItem,
     onClick: () -> Unit,
-    onCall: () -> Unit
+    onCall: () -> Unit,
+    onWhatsApp: () -> Unit,
+    onShowQr: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -492,141 +661,334 @@ fun CustomerListItemCard(
         colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Customer ID Avatar
-            Box(
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "#${item.customer.id}",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    color = colorScheme.primary
-                )
-            }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            // Details Column
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = item.customer.name,
-                        fontSize = 15.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurface
-                    )
-                    if (item.customer.phone.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.Call,
-                            contentDescription = "Call",
-                            tint = colorScheme.primary,
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clickable { onCall() }
-                        )
-                    }
-                }
-
-                Text(
-                    text = "${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""} | ${item.customer.defaultLiters}L",
-                    fontSize = 12.sp,
-                    color = colorScheme.onSurfaceVariant
-                )
-
-                Row(
-                    modifier = Modifier.padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                // Customer ID Avatar
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
                 ) {
-                    BillingTypeBadge(billingType = item.customer.billingType)
-                    MilkTypeBadge(milkType = item.customer.milkType)
-                    RateBadge(rate = item.customer.ratePerLiter)
-                }
-            }
-
-            // Balance Column
-            Column(horizontalAlignment = Alignment.End) {
-                if (item.currentBalance > 0) {
                     Text(
-                        text = "DUE (बकाया)",
-                        fontSize = 9.sp,
+                        text = "#${item.customer.id}",
                         fontWeight = FontWeight.Bold,
-                        color = StatusRed
-                    )
-                    Text(
-                        text = CalculationEngine.formatMoney(item.currentBalance),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = StatusRed
-                    )
-                } else if (item.currentBalance < 0) {
-                    Text(
-                        text = "ADVANCE",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    Text(
-                        text = CalculationEngine.formatMoney(-item.currentBalance),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                } else {
-                    Text(
-                        text = "CLEARED",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    Text(
-                        text = "₹0",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
                         color = colorScheme.primary
                     )
                 }
 
-                if (item.pbsPending > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFFFFF7ED),
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFEA580C)),
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
+                Spacer(modifier = Modifier.width(10.dp))
+
+                // Details Column
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "PBS: ₹%,d".format(item.pbsPending.toLong()),
-                            fontSize = 8.5.sp,
+                            text = item.customer.name,
+                            fontSize = 15.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFC2410C),
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            color = colorScheme.onSurface
                         )
                     }
-                }
 
-                if (item.lastPaymentAmount != null && item.lastPaymentDate != null) {
                     Text(
-                        text = "Last: ₹%.0f (%s)".format(
-                            item.lastPaymentAmount,
-                            CalculationEngine.formatDateDisplay(item.lastPaymentDate).take(6)
-                        ),
-                        fontSize = 10.sp,
+                        text = "${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""} | ${item.customer.defaultLiters}L",
+                        fontSize = 12.sp,
                         color = colorScheme.onSurfaceVariant
                     )
+
+                    Row(
+                        modifier = Modifier.padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        BillingTypeBadge(billingType = item.customer.billingType)
+                        MilkTypeBadge(milkType = item.customer.milkType)
+                        RateBadge(rate = item.customer.ratePerLiter)
+                    }
+                }
+
+                // Balance Column
+                Column(horizontalAlignment = Alignment.End) {
+                    if (item.currentBalance > 0) {
+                        Text(
+                            text = "DUE (बकाया)",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = StatusRed
+                        )
+                        Text(
+                            text = CalculationEngine.formatMoney(item.currentBalance),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = StatusRed
+                        )
+                    } else if (item.currentBalance < 0) {
+                        Text(
+                            text = "ADVANCE",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                        Text(
+                            text = CalculationEngine.formatMoney(-item.currentBalance),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    } else {
+                        Text(
+                            text = "CLEARED",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                        Text(
+                            text = "₹0",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+
+                    if (item.pbsPending > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFFFF7ED),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFEA580C)),
+                            modifier = Modifier.padding(top = 2.dp)
+                        ) {
+                            Text(
+                                text = "PBS: ₹%,d".format(item.pbsPending.toLong()),
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFC2410C),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+
+                    if (item.lastPaymentAmount != null && item.lastPaymentDate != null) {
+                        Text(
+                            text = "Last: ₹%.0f (%s)".format(
+                                item.lastPaymentAmount,
+                                CalculationEngine.formatDateDisplay(item.lastPaymentDate).take(6)
+                            ),
+                            fontSize = 10.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Quick Actions Bar on Card (WhatsApp Reminder & Due UPI QR)
+            HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.4f))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (item.customer.phone.isNotBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onCall() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(item.customer.phone, fontSize = 11.5.sp, color = colorScheme.primary)
+                    }
+                } else {
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFDCFCE7),
+                        modifier = Modifier.clickable { onWhatsApp() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("💬 WhatsApp", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.primaryContainer,
+                        modifier = Modifier.clickable { onShowQr() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.QrCode, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("UPI QR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+fun shareWhatsAppPaymentReminder(
+    context: Context,
+    customer: CustomerEntity,
+    balance: Double,
+    upiId: String,
+    payeeName: String
+) {
+    val dueStr = if (balance > 0) "₹${CalculationEngine.formatMoney(balance)}" else "₹0 (खाता चुकता)"
+    val message = "नमस्ते ${customer.name} जी,\n" +
+            "शाहबुद्दीन डेयरी की तरफ से आपके दूध का हिसाब:\n" +
+            "कुल बकाया: $dueStr\n" +
+            (if (upiId.isNotBlank()) "UPI ID: $upiId\n" else "") +
+            "कृपया समय पर भुगतान करें। धन्यवाद।\n— $payeeName"
+
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, message)
+        if (customer.phone.isNotBlank()) {
+            val phoneNum = if (customer.phone.startsWith("+91")) customer.phone else "+91${customer.phone}"
+            putExtra("jid", "${phoneNum.removePrefix("+")}@s.whatsapp.net")
+        }
+    }
+    intent.setPackage("com.whatsapp")
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Share Payment Reminder"))
+    }
+}
+
+@Composable
+fun CustomerDueQrDialog(
+    customer: CustomerEntity,
+    balance: Double,
+    upiId: String,
+    payeeName: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val effectiveAmount = if (balance > 0) balance else null
+    val upiUri = if (upiId.isNotBlank()) {
+        UpiQrGenerator.buildUpiUri(
+            upiId = upiId,
+            payeeName = payeeName,
+            amount = effectiveAmount,
+            note = "Due Hisab #${customer.id}"
+        )
+    } else ""
+    val qrBitmap = remember(upiUri) {
+        if (upiUri.isNotBlank()) UpiQrGenerator.generateUpiQrBitmap(upiUri, 512) else null
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("UPI Payment QR", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("#${customer.id} ${customer.name}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (balance > 0) {
+                    Text(
+                        text = "बकाया: ₹${CalculationEngine.formatMoney(balance)}",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = StatusRed
+                    )
+                } else {
+                    Text(
+                        text = "खाता चुकता / Advance",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                if (qrBitmap != null) {
+                    Image(
+                        bitmap = qrBitmap.asImageBitmap(),
+                        contentDescription = "Payment QR",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (upiId.isNotBlank()) "UPI: $upiId" else "UPI Not Configured",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        text = "UPI ID सेट नहीं है। कृपया Total Hisab से UPI ID जोड़ें।",
+                        fontSize = 12.sp,
+                        color = StatusRed,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (qrBitmap != null) {
+                Button(
+                    onClick = {
+                        val file = UpiQrGenerator.saveBitmapToCache(context, qrBitmap, "DueQR_${customer.id}.png")
+                        if (file != null) {
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file
+                            )
+                            UpiQrGenerator.shareBitmap(context, uri, "Share Due QR for ${customer.name}")
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("SHARE QR")
+                }
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(8.dp)) {
+                Text("Close")
+            }
+        },
+        shape = RoundedCornerShape(14.dp)
+    )
 }
 
 @Composable

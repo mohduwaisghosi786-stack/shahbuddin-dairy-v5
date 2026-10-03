@@ -54,6 +54,8 @@ data class ReportsUiState(
     val customerRows: List<DailyCustomerReportRow> = emptyList(),
     val periodLabel: String = "Today",
     val trendVsYesterdayPercent: Double? = null,
+    val factualObservations: List<String> = emptyList(),
+    val factualAlerts: List<String> = emptyList(),
     val isLoading: Boolean = false,
     val pdfResult: PdfReportGenerator.PdfResult? = null
 )
@@ -196,6 +198,39 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             ReportPeriod.MONTHLY -> "Last 30 Days (मासिक)"
         }
 
+        // Factual Local Rule-based Smart Daily Assistant observations
+        val pinnedNotes = repository.getAllPinnedNotesDirect()
+        val lastBackup = repository.getSetting("last_backup_time") ?: repository.getSetting("last_local_backup_time")
+
+        val obs = mutableListOf<String>()
+        val alerts = mutableListOf<String>()
+
+        val totalActive = customers.count { it.isArchived == 0 && it.isActive == 1 }
+        if (totalActive > 0 && period == ReportPeriod.DAILY) {
+            val pct = (served * 100) / totalActive
+            obs.add("Route $pct% completed ($served/$totalActive delivered)")
+        }
+        if (pending > 0 && period == ReportPeriod.DAILY) {
+            obs.add("$pending customer deliveries remain pending today")
+        }
+        if (sumBill > 0.0) {
+            obs.add("Total collection volume: ${CalculationEngine.formatMoney(sumBill)} (Collected: ${CalculationEngine.formatMoney(sumCash + sumOnline)})")
+        }
+        if (pinnedNotes.isNotEmpty()) {
+            obs.add("${pinnedNotes.size} pinned customer notes active")
+        }
+
+        // Factual Business Alerts
+        if (naga > 0 && period == ReportPeriod.DAILY) {
+            alerts.add("$naga customers marked Naga (नागा) today")
+        }
+        if (pendingDue > 0.0) {
+            alerts.add("Pending route balance today: ${CalculationEngine.formatMoney(pendingDue)}")
+        }
+        if (lastBackup.isNullOrBlank()) {
+            alerts.add("Local database backup has not been created yet")
+        }
+
         ReportsUiState(
             selectedPeriod = period,
             selectedDate = date,
@@ -213,6 +248,8 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             customerRows = rows,
             periodLabel = pLabel,
             trendVsYesterdayPercent = trend,
+            factualObservations = obs,
+            factualAlerts = alerts,
             isLoading = false,
             pdfResult = pdfRes
         )

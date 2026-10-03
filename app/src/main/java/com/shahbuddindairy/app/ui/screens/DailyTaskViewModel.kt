@@ -137,6 +137,48 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
     private val _pendingConfirmItem = MutableStateFlow<DailyCustomerCardItem?>(null)
     val pendingConfirmItem: StateFlow<DailyCustomerCardItem?> = _pendingConfirmItem.asStateFlow()
 
+    // Smart Runner 2.0: Auto Next & Position Memory (strictly stores immutable customerId)
+    private val _autoNextEnabled = MutableStateFlow(true)
+    val autoNextEnabled: StateFlow<Boolean> = _autoNextEnabled.asStateFlow()
+
+    private val _activeRunnerCustomerId = MutableStateFlow<Long?>(null)
+    val activeRunnerCustomerId: StateFlow<Long?> = _activeRunnerCustomerId.asStateFlow()
+
+    fun setAutoNextEnabled(enabled: Boolean) {
+        _autoNextEnabled.value = enabled
+    }
+
+    fun setActiveRunnerCustomerId(customerId: Long?) {
+        _activeRunnerCustomerId.value = customerId
+    }
+
+    fun findSmartNextCustomerId(
+        currentCustomerId: Long,
+        cards: List<DailyCustomerCardItem>,
+        skipCompleted: Boolean = true
+    ): Long? {
+        if (cards.isEmpty()) return null
+        val currentIndex = cards.indexOfFirst { it.customer.id == currentCustomerId }
+        if (currentIndex == -1) return cards.first().customer.id
+
+        if (skipCompleted) {
+            // Forward search for next pending customer
+            for (i in (currentIndex + 1) until cards.size) {
+                if (!cards[i].isDone && !cards[i].isNaga) {
+                    return cards[i].customer.id
+                }
+            }
+            // Wrapped search from beginning
+            for (i in 0 until currentIndex) {
+                if (!cards[i].isDone && !cards[i].isNaga) {
+                    return cards[i].customer.id
+                }
+            }
+        }
+
+        return if (currentIndex < cards.size - 1) cards[currentIndex + 1].customer.id else cards[currentIndex].customer.id
+    }
+
     private data class CustomerProfile(
         val prevDue: Double,
         val currentBal: Double,

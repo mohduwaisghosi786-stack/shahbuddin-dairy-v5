@@ -58,6 +58,14 @@ data class CustomerDetailUiState(
     val pinnedNote: CustomerNoteEntity? = null,
     val routeName: String = "Main Route",
     val pbsPending: Double = 0.0,
+    val tags: Set<String> = emptySet(),
+    val upiId: String = "",
+    val payeeName: String = "Shahbuddin Dairy",
+    val dairyPhone: String = "9897259461",
+    val todayLiters: Double = 0.0,
+    val todayBill: Double = 0.0,
+    val todayCashPaid: Double = 0.0,
+    val todayOnlinePaid: Double = 0.0,
     val isLoading: Boolean = false,
     val pdfExportResult: PdfReportGenerator.PdfResult? = null
 )
@@ -80,26 +88,51 @@ class CustomerDetailViewModel(
         val pbs: Double
     )
 
+    private data class CustomerMetaData(
+        val tags: Set<String>,
+        val upiId: String,
+        val payeeName: String,
+        val dairyPhone: String
+    )
+
+    private val baseDataFlow = combine(
+        repository.getCustomerById(customerId),
+        repository.getDeliveriesForCustomer(customerId),
+        repository.getPaymentsForCustomer(customerId),
+        repository.getSettingFlow("pbs_pending_$customerId")
+    ) { customer, deliveries, payments, pbsStr ->
+        CustomerBaseData(
+            customer = customer,
+            deliveries = deliveries,
+            payments = payments,
+            pbs = pbsStr?.toDoubleOrNull() ?: 0.0
+        )
+    }
+
+    private val metaDataFlow = combine(
+        repository.getSettingFlow("customer_tags_$customerId"),
+        repository.getSettingFlow("upi_id"),
+        repository.getSettingFlow("payee_name"),
+        repository.getSettingFlow("dairy_phone")
+    ) { tagsCsv, upi, payee, phone ->
+        val tagSet = tagsCsv?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+        CustomerMetaData(
+            tags = tagSet,
+            upiId = upi ?: "",
+            payeeName = payee?.ifBlank { "Shahbuddin Dairy" } ?: "Shahbuddin Dairy",
+            dairyPhone = phone?.ifBlank { "9897259461" } ?: "9897259461"
+        )
+    }
+
     val uiState: StateFlow<CustomerDetailUiState> = combine(
-        combine(
-            repository.getCustomerById(customerId),
-            repository.getDeliveriesForCustomer(customerId),
-            repository.getPaymentsForCustomer(customerId),
-            repository.getSettingFlow("pbs_pending_$customerId")
-        ) { customer, deliveries, payments, pbsStr ->
-            CustomerBaseData(
-                customer = customer,
-                deliveries = deliveries,
-                payments = payments,
-                pbs = pbsStr?.toDoubleOrNull() ?: 0.0
-            )
-        },
+        baseDataFlow,
+        metaDataFlow,
         repository.getNotesForCustomer(customerId),
         repository.getAllRoutes(),
         _pdfResult
-    ) { base, notes, routes, pdfRes ->
+    ) { base, meta, notes, routes, pdfRes ->
         val rName = routes.find { it.id == base.customer?.routeId }?.name ?: "Main Route"
-        buildCustomerState(base.customer, base.deliveries, base.payments, base.pbs, notes, rName, pdfRes)
+        buildCustomerState(base.customer, base.deliveries, base.payments, base.pbs, notes, rName, meta, pdfRes)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -112,6 +145,19 @@ class CustomerDetailViewModel(
         }
     }
 
+    fun toggleCustomerTag(tag: String) {
+        viewModelScope.launch {
+            val currentCsv = repository.getSetting("customer_tags_$customerId") ?: ""
+            val set = currentCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableSet()
+            if (set.contains(tag)) {
+                set.remove(tag)
+            } else {
+                set.add(tag)
+            }
+            repository.setSetting("customer_tags_$customerId", set.joinToString(","))
+        }
+    }
+
     private fun buildCustomerState(
         customer: CustomerEntity?,
         deliveries: List<DeliveryEntity>,
@@ -119,6 +165,7 @@ class CustomerDetailViewModel(
         pbsPending: Double,
         notes: List<CustomerNoteEntity>,
         routeName: String,
+        meta: CustomerMetaData,
         pdfRes: PdfReportGenerator.PdfResult?
     ): CustomerDetailUiState {
         if (customer == null) {
@@ -205,6 +252,12 @@ class CustomerDetailViewModel(
             item.copy(runningBalance = CalculationEngine.round2(running))
         }.reversed() // Show newest first on screen
 
+        val todayStr = CalculationEngine.todayStr()
+        val todayDeliv = deliveries.find { it.date == todayStr && !it.isVoid && it.status == "delivered" }
+        val todayPayments = payments.filter { it.date == todayStr && !it.isVoid }
+        val todayCash = (todayDeliv?.paidCash ?: 0.0) + todayPayments.filter { it.paymentMode == "Cash" }.sumOf { it.amount }
+        val todayOnline = (todayDeliv?.paidOnline ?: 0.0) + todayPayments.filter { it.paymentMode != "Cash" }.sumOf { it.amount }
+
         return CustomerDetailUiState(
             customer = customer,
             currentBalance = netBalance,
@@ -219,6 +272,14 @@ class CustomerDetailViewModel(
             pinnedNote = notes.firstOrNull { it.isPinned },
             routeName = routeName,
             pbsPending = pbsPending,
+            tags = meta.tags,
+            upiId = meta.upiId,
+            payeeName = meta.payeeName,
+            dairyPhone = meta.dairyPhone,
+            todayLiters = todayDeliv?.liters ?: 0.0,
+            todayBill = todayDeliv?.totalAmount ?: 0.0,
+            todayCashPaid = CalculationEngine.round2(todayCash),
+            todayOnlinePaid = CalculationEngine.round2(todayOnline),
             isLoading = false,
             pdfExportResult = pdfRes
         )
@@ -376,6 +437,56 @@ class CustomerDetailViewModel(
             val res = PdfReportGenerator.generateCustomerKhataPdf(context, cust, deliveries, payments)
             _pdfResult.value = res
         }
+    }
+
+    fun exportMonthlyStatementPdf(context: Context, monthStr: String = CalculationEngine.todayStr().take(7)) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cust = repository.getCustomerByIdDirect(customerId) ?: return@launch
+            val deliveries = repository.getDeliveriesForCustomerDirect(customerId)
+            val payments = repository.getPaymentsForCustomerDirect(customerId)
+            val res = PdfReportGenerator.generateMonthlyStatementPdf(context, cust, monthStr, deliveries, payments)
+            _pdfResult.value = res
+        }
+    }
+
+    fun exportSingleReceiptPdf(context: Context, receiptData: com.shahbuddindairy.app.receipt.ReceiptData) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val res = PdfReportGenerator.generateSingleReceiptPdf(context, receiptData)
+            _pdfResult.value = res
+        }
+    }
+
+    fun getReceiptData(date: String = CalculationEngine.todayStr()): com.shahbuddindairy.app.receipt.ReceiptData {
+        val state = uiState.value
+        val cust = state.customer
+        val deliv = state.milkDeliveries.find { it.date == date && !it.isVoid }
+        val datePayments = state.payments.filter { it.date == date && !it.isVoid }
+        val cash = (deliv?.paidCash ?: 0.0) + datePayments.filter { it.paymentMode == "Cash" }.sumOf { it.amount }
+        val online = (deliv?.paidOnline ?: 0.0) + datePayments.filter { it.paymentMode != "Cash" }.sumOf { it.amount }
+        val totPaid = cash + online
+        val bill = deliv?.totalAmount ?: 0.0
+
+        return com.shahbuddindairy.app.receipt.ReceiptData(
+            businessName = state.payeeName,
+            businessPhone = state.dairyPhone,
+            upiId = state.upiId,
+            customerName = cust?.name ?: "Customer",
+            customerId = customerId,
+            date = date,
+            milkLiters = deliv?.liters ?: (cust?.defaultLiters ?: 0.0),
+            milkType = deliv?.milkType ?: (cust?.milkType ?: "भैंस"),
+            rate = deliv?.rate ?: (cust?.ratePerLiter ?: 0.0),
+            billAmount = bill,
+            previousDue = state.currentBalance,
+            cashPaid = cash,
+            onlinePaid = online,
+            totalPaid = totPaid,
+            advance = if (state.currentBalance < 0) -state.currentBalance else 0.0,
+            remainingDue = if (state.currentBalance > 0) state.currentBalance else 0.0,
+            pbsPending = state.pbsPending,
+            receiptNumber = "RCP-$customerId-${date.replace("-", "")}",
+            note = deliv?.note ?: ""
+        )
     }
 
     fun clearPdfResult() {

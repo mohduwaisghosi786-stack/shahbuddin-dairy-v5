@@ -220,6 +220,72 @@ fun ReportsScreen(
             }
         }
 
+        // SMART DAILY ASSISTANT & FACTUAL BUSINESS ALERTS
+        if (uiState.factualAlerts.isNotEmpty() || uiState.factualObservations.isNotEmpty()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(10.dp)) {
+                    if (uiState.factualAlerts.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚠️", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "BUSINESS ALERTS",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = StatusRed,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        uiState.factualAlerts.forEach { alert ->
+                            Text(
+                                text = "• $alert",
+                                fontSize = 11.5.sp,
+                                color = colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(vertical = 1.dp)
+                            )
+                        }
+                        if (uiState.factualObservations.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            HorizontalDivider(color = colorScheme.outlineVariant)
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+
+                    if (uiState.factualObservations.isNotEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("💡", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "SMART DAILY ASSISTANT",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        uiState.factualObservations.forEach { obs ->
+                            Text(
+                                text = "• $obs",
+                                fontSize = 11.5.sp,
+                                color = colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // KEY METRIC STAT CARDS
         Row(
             modifier = Modifier

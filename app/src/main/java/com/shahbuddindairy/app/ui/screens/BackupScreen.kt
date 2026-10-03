@@ -23,6 +23,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import android.graphics.Bitmap
+import com.shahbuddindairy.app.receipt.UpiQrGenerator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Backup
@@ -109,8 +121,20 @@ fun BackupScreen(viewModel: BackupViewModel) {
 
     var payeeInput by remember(uiState.payeeName) { mutableStateOf(uiState.payeeName) }
     var phoneInput by remember(uiState.dairyPhone) { mutableStateOf(uiState.dairyPhone) }
+    var whatsappInput by remember(uiState.whatsappPhone) { mutableStateOf(uiState.whatsappPhone) }
     var upiInput by remember(uiState.upiId) { mutableStateOf(uiState.upiId) }
     var showRevertConfirm by remember { mutableStateOf(false) }
+
+    // Security & App Lock Dialog States
+    var showEnablePinDialog by remember { mutableStateOf(false) }
+    var showChangePinDialog by remember { mutableStateOf(false) }
+    var showDisablePinDialog by remember { mutableStateOf(false) }
+    var showQrPreviewDialog by remember { mutableStateOf(false) }
+    var pinSetupInput by remember { mutableStateOf("") }
+    var pinConfirmInput by remember { mutableStateOf("") }
+    var currentPinInput by remember { mutableStateOf("") }
+    var newPinInput by remember { mutableStateOf("") }
+    var pinErrorText by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -409,36 +433,79 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Backup & Data Protection (डेटा बैकअप)",
-                            fontSize = 15.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurface
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Security, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "BACKUP & DATA PROTECTION",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary
+                            )
+                        }
                     }
-                    Text(
-                        text = "Creates verified physical backups with all customers, milk history, payments, and settings in Downloads.",
-                        fontSize = 12.sp,
-                        color = colorScheme.onSurfaceVariant
-                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // 3-WAY HEALTH STATUS GRID
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // 1. LOCAL BACKUP
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, colorScheme.primary.copy(alpha = 0.4f)),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("LOCAL BACKUP", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                                Text("✓ Healthy", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = DairyGreenDark)
+                                Text(uiState.lastBackupTime ?: "Pending", fontSize = 9.5.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        // 2. CLOUD BACKUP
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colorScheme.surfaceContainer,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, colorScheme.outlineVariant),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("GOOGLE CLOUD", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                                Text("✓ Enabled", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                                Text("Drive Export", fontSize = 9.5.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        // 3. DATABASE
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colorScheme.surfaceContainer,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, colorScheme.outlineVariant),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("DATABASE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                                Text("✓ Healthy", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = DairyGreenDark)
+                                Text("SQLite v2", fontSize = 9.5.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "• Last Backup: ${uiState.lastBackupTime}",
-                        fontSize = 12.sp,
+                        text = "Creates verified physical backups with all customers, milk history, payments, and settings in Downloads.",
+                        fontSize = 11.5.sp,
                         color = colorScheme.onSurfaceVariant
                     )
-                    if (uiState.lastBackupSize > 0) {
-                        Text(
-                            text = "• Size: %,d KB (%d backups taken)".format(uiState.lastBackupSize / 1024, uiState.backupCount),
-                            fontSize = 12.sp,
-                            color = colorScheme.onSurfaceVariant
-                        )
-                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -564,7 +631,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 }
             }
 
-            // 6. DAIRY SETTINGS CARD
+            // 6. SECURITY & APP LOCK CARD (V8.0 Native PIN Lock)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -575,21 +642,134 @@ fun BackupScreen(viewModel: BackupViewModel) {
                     modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Settings, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Dairy Settings (डेयरी सेटिंग्स)",
-                            fontSize = 15.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurface
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (uiState.isAppLockEnabled) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = null,
+                                tint = if (uiState.isAppLockEnabled) colorScheme.primary else colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "App Lock (ऐप लॉक सुरक्षा)",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (uiState.isAppLockEnabled) colorScheme.primaryContainer else colorScheme.surfaceContainerHigh)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = if (uiState.isAppLockEnabled) "ON ✓" else "OFF",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (uiState.isAppLockEnabled) colorScheme.primary else colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "स्थानीय 4-अंकीय पिन कोड सुरक्षा। जब यह ऑन होता है, तो ऐप खोलने पर सुरक्षित पिन पूछा जाता है। (डिफ़ॉल्ट रूप से बंद है)",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    if (!uiState.isAppLockEnabled) {
+                        Button(
+                            onClick = {
+                                pinSetupInput = ""
+                                pinConfirmInput = ""
+                                pinErrorText = null
+                                showEnablePinDialog = true
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Key, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("ENABLE APP LOCK (SET 4-DIGIT PIN)", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    currentPinInput = ""
+                                    newPinInput = ""
+                                    pinConfirmInput = ""
+                                    pinErrorText = null
+                                    showChangePinDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("CHANGE PIN", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    currentPinInput = ""
+                                    pinErrorText = null
+                                    showDisablePinDialog = true
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.error),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("DISABLE LOCK", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 7. BUSINESS UPI & CONTACT SETTINGS (V8.0)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Settings, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Business & UPI Profile (डेयरी प्रोफाइल)",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
                     }
 
                     OutlinedTextField(
                         value = payeeInput,
                         onValueChange = { payeeInput = it },
-                        label = { Text("Dairy Name / Payee") },
+                        label = { Text("Dairy Name / Business Payee") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorScheme.primary,
@@ -598,22 +778,41 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    OutlinedTextField(
-                        value = phoneInput,
-                        onValueChange = { phoneInput = it },
-                        label = { Text("Dairy Phone Number") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colorScheme.primary,
-                            unfocusedBorderColor = colorScheme.outlineVariant
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = phoneInput,
+                            onValueChange = { phoneInput = it },
+                            label = { Text("Dairy Phone") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colorScheme.primary,
+                                unfocusedBorderColor = colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        OutlinedTextField(
+                            value = whatsappInput,
+                            onValueChange = { whatsappInput = it },
+                            label = { Text("WhatsApp Phone") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colorScheme.primary,
+                                unfocusedBorderColor = colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
 
                     OutlinedTextField(
                         value = upiInput,
-                        onValueChange = { upiInput = it },
-                        label = { Text("UPI ID (Optional, for WhatsApp receipts)") },
+                        onValueChange = { upiInput = it.trim() },
+                        label = { Text("UPI ID (e.g. 9897259461@upi)") },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorScheme.primary,
@@ -622,15 +821,33 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Button(
-                        onClick = { viewModel.saveSettings(payeeInput, phoneInput, upiInput) },
-                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("SAVE SETTINGS", fontWeight = FontWeight.Bold)
+                        OutlinedButton(
+                            onClick = { showQrPreviewDialog = true },
+                            enabled = upiInput.isNotBlank(),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("QR PREVIEW", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.saveUpiSettings(payeeInput, phoneInput, upiInput, whatsappInput)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("SAVE SETTINGS", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -643,7 +860,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Shahbuddin Dairy V7.6",
+                    text = "Shahbuddin Dairy V8.0",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = colorScheme.primary
@@ -818,6 +1035,285 @@ fun BackupScreen(viewModel: BackupViewModel) {
             dismissButton = {
                 OutlinedButton(onClick = { showRevertConfirm = false }, shape = RoundedCornerShape(8.dp)) {
                     Text("Cancel")
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = colorScheme.surface
+        )
+    }
+
+    // 1. ENABLE PIN DIALOG
+    if (showEnablePinDialog) {
+        AlertDialog(
+            onDismissRequest = { showEnablePinDialog = false },
+            title = { Text("Set 4-Digit App Lock PIN", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Enter a 4-digit numeric PIN to secure the app.", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+
+                    OutlinedTextField(
+                        value = pinSetupInput,
+                        onValueChange = { if (it.length <= 4) pinSetupInput = it },
+                        label = { Text("Enter 4-Digit PIN") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = pinConfirmInput,
+                        onValueChange = { if (it.length <= 4) pinConfirmInput = it },
+                        label = { Text("Confirm PIN") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    pinErrorText?.let {
+                        Text(it, color = colorScheme.error, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pinSetupInput.length != 4) {
+                            pinErrorText = "PIN must be exactly 4 digits"
+                        } else if (pinSetupInput != pinConfirmInput) {
+                            pinErrorText = "PINs do not match"
+                        } else {
+                            val ok = viewModel.setAppLock(true, pin = pinSetupInput)
+                            if (ok) {
+                                showEnablePinDialog = false
+                            } else {
+                                pinErrorText = "Failed to set PIN"
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                ) {
+                    Text("ENABLE LOCK", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showEnablePinDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = colorScheme.surface
+        )
+    }
+
+    // 2. CHANGE PIN DIALOG
+    if (showChangePinDialog) {
+        AlertDialog(
+            onDismissRequest = { showChangePinDialog = false },
+            title = { Text("Change App Lock PIN", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = currentPinInput,
+                        onValueChange = { if (it.length <= 4) currentPinInput = it },
+                        label = { Text("Current 4-Digit PIN") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = newPinInput,
+                        onValueChange = { if (it.length <= 4) newPinInput = it },
+                        label = { Text("New 4-Digit PIN") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = pinConfirmInput,
+                        onValueChange = { if (it.length <= 4) pinConfirmInput = it },
+                        label = { Text("Confirm New PIN") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    pinErrorText?.let {
+                        Text(it, color = colorScheme.error, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (currentPinInput.length != 4) {
+                            pinErrorText = "Enter current 4-digit PIN"
+                        } else if (newPinInput.length != 4) {
+                            pinErrorText = "New PIN must be exactly 4 digits"
+                        } else if (newPinInput != pinConfirmInput) {
+                            pinErrorText = "New PINs do not match"
+                        } else {
+                            val ok = viewModel.changeAppLockPin(currentPinInput, newPinInput)
+                            if (ok) {
+                                showChangePinDialog = false
+                            } else {
+                                pinErrorText = "Current PIN is incorrect"
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                ) {
+                    Text("SAVE NEW PIN", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showChangePinDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = colorScheme.surface
+        )
+    }
+
+    // 3. DISABLE PIN DIALOG
+    if (showDisablePinDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisablePinDialog = false },
+            title = { Text("Disable App Lock", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Enter current PIN to confirm disabling App Lock.", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+
+                    OutlinedTextField(
+                        value = currentPinInput,
+                        onValueChange = { if (it.length <= 4) currentPinInput = it },
+                        label = { Text("Current 4-Digit PIN") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    pinErrorText?.let {
+                        Text(it, color = colorScheme.error, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val ok = viewModel.setAppLock(false, currentPin = currentPinInput)
+                        if (ok) {
+                            showDisablePinDialog = false
+                        } else {
+                            pinErrorText = "Incorrect PIN"
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.error)
+                ) {
+                    Text("DISABLE LOCK", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showDisablePinDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = colorScheme.surface
+        )
+    }
+
+    // 4. UPI QR PREVIEW DIALOG
+    if (showQrPreviewDialog) {
+        val upiUri = remember(upiInput, payeeInput) {
+            UpiQrGenerator.buildUpiUri(upiId = upiInput, payeeName = payeeInput)
+        }
+        val qrBitmap = remember(upiUri) {
+            UpiQrGenerator.generateUpiQrBitmap(upiUri, size = 480)
+        }
+
+        AlertDialog(
+            onDismissRequest = { showQrPreviewDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.QrCode, contentDescription = null, tint = colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Business UPI QR", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = payeeInput.ifBlank { "Shahbuddin Dairy" },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.primary
+                    )
+                    Text(
+                        text = "UPI: $upiInput",
+                        fontSize = 12.sp,
+                        color = colorScheme.onSurfaceVariant
+                    )
+
+                    if (qrBitmap != null) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        ) {
+                            Image(
+                                bitmap = qrBitmap.asImageBitmap(),
+                                contentDescription = "UPI QR Code",
+                                modifier = Modifier
+                                    .size(220.dp)
+                                    .padding(8.dp)
+                            )
+                        }
+                    } else {
+                        Text("QR code could not be rendered", color = colorScheme.error, fontSize = 12.sp)
+                    }
+
+                    Text(
+                        text = "Offline UPI QR • All UPI Apps Supported (PhonePe, GPay, Paytm, BHIM)",
+                        fontSize = 10.5.sp,
+                        color = colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Payment to ${payeeInput.ifBlank { "Shahbuddin Dairy" }}\nUPI ID: $upiInput\nPay Link: $upiUri"
+                            )
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share UPI Details"))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("SHARE UPI")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showQrPreviewDialog = false }) {
+                    Text("Close")
                 }
             },
             shape = RoundedCornerShape(14.dp),

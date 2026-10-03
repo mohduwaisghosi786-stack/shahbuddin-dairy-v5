@@ -62,6 +62,15 @@ import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import com.shahbuddindairy.app.receipt.UpiQrGenerator
+import com.shahbuddindairy.app.receipt.ReceiptData
+import com.shahbuddindairy.app.receipt.ReceiptImageGenerator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Switch
@@ -143,6 +152,19 @@ fun DailyTaskScreen(
     var showQuickCustomerDialog by remember { mutableStateOf(false) }
     var customerForNotes by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var showRouteManagerDialog by remember { mutableStateOf(false) }
+
+    // V8.0 Smart Runner 2.0 States
+    val autoNextEnabled by viewModel.autoNextEnabled.collectAsState()
+    val savedRunnerCustomerId by viewModel.activeRunnerCustomerId.collectAsState()
+    LaunchedEffect(savedRunnerCustomerId) {
+        if (savedRunnerCustomerId != null && activeCustomerId == null) {
+            activeCustomerId = savedRunnerCustomerId
+        }
+    }
+
+    var runnerMoreCustomerItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var runnerQrCustomerItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var runnerReceiptCustomerItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
 
     // V7.6 Dialog States
     var editingDueCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
@@ -632,39 +654,64 @@ fun DailyTaskScreen(
                             )
                             val rName = uiState.selectedRouteId.let { rId -> uiState.availableRoutes.find { it.id == rId }?.name ?: "All Routes" }
                             Text(
-                                text = "Route: $rName • ${uiState.completedCount}/${uiState.customerCards.size} Done",
+                                text = "$rName • ${uiState.completedCount}/${uiState.customerCards.size} Done (${uiState.pendingCount} left)",
                                 fontSize = 10.5.sp,
                                 color = colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colorScheme.surface,
-                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                        modifier = Modifier.clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewMode = 0
-                        }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        // AUTO NEXT TOGGLE
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (autoNextEnabled) colorScheme.primary else colorScheme.surface,
+                            border = BorderStroke(1.dp, if (autoNextEnabled) colorScheme.primary else colorScheme.outlineVariant),
+                            modifier = Modifier.clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.setAutoNextEnabled(!autoNextEnabled)
+                            }
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
-                                contentDescription = null,
-                                tint = colorScheme.onSurface,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "List Mode",
+                                text = if (autoNextEnabled) "Auto ⏩" else "Auto ⏸",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = colorScheme.onSurface
+                                color = if (autoNextEnabled) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
                             )
+                        }
+
+                        // LIST MODE SWITCH
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colorScheme.surface,
+                            border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                            modifier = Modifier.clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewMode = 0
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                    contentDescription = null,
+                                    tint = colorScheme.onSurface,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "List",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colorScheme.onSurface
+                                )
+                            }
                         }
                     }
                 }
@@ -709,11 +756,19 @@ fun DailyTaskScreen(
                     nagaCount = uiState.nagaCount,
                     onPrev = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (currentIndex > 0) activeCustomerId = cards[currentIndex - 1].customer.id
+                        if (currentIndex > 0) {
+                            val prevId = cards[currentIndex - 1].customer.id
+                            activeCustomerId = prevId
+                            viewModel.setActiveRunnerCustomerId(prevId)
+                        }
                     },
                     onNext = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (currentIndex < cards.size - 1) activeCustomerId = cards[currentIndex + 1].customer.id
+                        val nextId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = false)
+                        if (nextId != null) {
+                            activeCustomerId = nextId
+                            viewModel.setActiveRunnerCustomerId(nextId)
+                        }
                     },
                     onQuantityChanged = { q -> viewModel.onQuantityChanged(currentItem.customer.id, q) },
                     onCashChanged = { c -> viewModel.onCashChanged(currentItem.customer.id, c) },
@@ -732,16 +787,22 @@ fun DailyTaskScreen(
                     },
                     onNagaClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val nextTargetId = cards.getOrNull(currentIndex + 1)?.customer?.id ?: cards.getOrNull(currentIndex - 1)?.customer?.id
+                        val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = true)
                         viewModel.markNaga(currentItem) {
-                            if (nextTargetId != null) activeCustomerId = nextTargetId
+                            if (nextTargetId != null) {
+                                activeCustomerId = nextTargetId
+                                viewModel.setActiveRunnerCustomerId(nextTargetId)
+                            }
                         }
                     },
                     onAlternateClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val nextTargetId = cards.getOrNull(currentIndex + 1)?.customer?.id ?: cards.getOrNull(currentIndex - 1)?.customer?.id
+                        val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = true)
                         viewModel.markAlternate(currentItem) {
-                            if (nextTargetId != null) activeCustomerId = nextTargetId
+                            if (nextTargetId != null) {
+                                activeCustomerId = nextTargetId
+                                viewModel.setActiveRunnerCustomerId(nextTargetId)
+                            }
                         }
                     },
                     onUndoClicked = {
@@ -767,7 +828,8 @@ fun DailyTaskScreen(
                     onMilkEditClicked = { editingMilkCustomer = currentItem },
                     onBillEditClicked = { overridingBillCustomer = currentItem },
                     onDueEditClicked = { editingDueCustomer = currentItem },
-                    onAdvanceEditClicked = { editingAdvanceCustomer = currentItem }
+                    onAdvanceEditClicked = { editingAdvanceCustomer = currentItem },
+                    onMoreClicked = { runnerMoreCustomerItem = currentItem }
                 )
                 }
             }
@@ -859,14 +921,14 @@ fun DailyTaskScreen(
             onConfirm = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 val currentCards = uiState.customerCards
-                val cIdx = currentCards.indexOfFirst { it.customer.id == item.customer.id }
-                val nextTargetId = if (cIdx >= 0) {
-                    currentCards.getOrNull(cIdx + 1)?.customer?.id ?: currentCards.getOrNull(cIdx - 1)?.customer?.id
+                val nextTargetId = if (autoNextEnabled) {
+                    viewModel.findSmartNextCustomerId(item.customer.id, currentCards, skipCompleted = true)
                 } else null
 
                 viewModel.confirmAndSaveTransaction {
                     if (viewMode == 1 && nextTargetId != null) {
                         activeCustomerId = nextTargetId
+                        viewModel.setActiveRunnerCustomerId(nextTargetId)
                     }
                 }
             },
@@ -968,19 +1030,70 @@ fun DailyTaskScreen(
             item = item,
             onConfirm = {
                 val currentCards = uiState.customerCards
-                val cIdx = currentCards.indexOfFirst { it.customer.id == item.customer.id }
-                val nextTargetId = if (cIdx >= 0) {
-                    currentCards.getOrNull(cIdx + 1)?.customer?.id ?: currentCards.getOrNull(cIdx - 1)?.customer?.id
+                val nextTargetId = if (autoNextEnabled) {
+                    viewModel.findSmartNextCustomerId(item.customer.id, currentCards, skipCompleted = true)
                 } else null
 
                 viewModel.confirmAndSaveTransaction {
                     if (viewMode == 1 && nextTargetId != null) {
                         activeCustomerId = nextTargetId
+                        viewModel.setActiveRunnerCustomerId(nextTargetId)
                     }
                     runnerCashConfirmItem = null
                 }
             },
             onDismiss = { runnerCashConfirmItem = null }
+        )
+    }
+
+    // 8. RUNNER MORE MENU DIALOG (V8.0)
+    runnerMoreCustomerItem?.let { item ->
+        RunnerMoreMenuDialog(
+            item = item,
+            onDismiss = { runnerMoreCustomerItem = null },
+            onOpenKhata = { onNavigateToCustomerKhata(item.customer.id) },
+            onOpenQr = { runnerQrCustomerItem = item },
+            onOpenReceipt = { runnerReceiptCustomerItem = item },
+            onOpenNotes = { customerForNotes = Pair(item.customer.id, item.customer.name) },
+            onOpenWhatsApp = {
+                val due = if (item.remainingDue > 0) item.remainingDue else 0.0
+                val text = "शाहबुद्दीन डेयरी (Shahbuddin Dairy)\nनमस्ते ${item.customer.name} जी,\nआज का दूध: ${item.currentMilkInput}L\nआज का बिल: ${CalculationEngine.formatMoney(item.todayBill)}\nकुल शेष बकाया: ${CalculationEngine.formatMoney(due)}\nधन्यवाद!"
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    setPackage("com.whatsapp")
+                }
+                try {
+                    context.startActivity(shareIntent)
+                } catch (e: Exception) {
+                    val chooser = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    }, "Share via WhatsApp")
+                    context.startActivity(chooser)
+                }
+            },
+            onEditMaster = { editingMasterCustomer = item.customer }
+        )
+    }
+
+    // 9. RUNNER DUE QR DIALOG (V8.0)
+    runnerQrCustomerItem?.let { item ->
+        RunnerDueQrDialog(
+            item = item,
+            upiId = "9897259461@upi",
+            payeeName = "Shahbuddin Dairy",
+            onDismiss = { runnerQrCustomerItem = null }
+        )
+    }
+
+    // 10. RUNNER RECEIPT SHARE DIALOG (V8.0)
+    runnerReceiptCustomerItem?.let { item ->
+        RunnerReceiptShareDialog(
+            item = item,
+            upiId = "9897259461@upi",
+            dairyPhone = "9897259461",
+            onDismiss = { runnerReceiptCustomerItem = null }
         )
     }
 
@@ -1909,7 +2022,8 @@ fun DailyTaskRunnerCard(
     onMilkEditClicked: () -> Unit = {},
     onBillEditClicked: () -> Unit = {},
     onDueEditClicked: () -> Unit = {},
-    onAdvanceEditClicked: () -> Unit = {}
+    onAdvanceEditClicked: () -> Unit = {},
+    onMoreClicked: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -1996,6 +2110,9 @@ fun DailyTaskRunnerCard(
                         Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
                 }
+                IconButton(onClick = onMoreClicked, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More Actions", tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                }
             }
 
             // PINNED CUSTOMER NOTE BADGE (Runner Mode)
@@ -2075,12 +2192,26 @@ fun DailyTaskRunnerCard(
                 Button(
                     onClick = {
                         val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+                        val nextVal = (curr - 0.5).coerceAtLeast(0.5)
+                        onQuantityChanged("%.2f".format(Locale.US, nextVal))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                ) {
+                    Text("-0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = {
+                        val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
                         onQuantityChanged("%.2f".format(Locale.US, (curr + 0.5)))
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("+0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("+0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
 
                 Button(
@@ -2089,9 +2220,10 @@ fun DailyTaskRunnerCard(
                         onQuantityChanged("%.2f".format(Locale.US, (curr + 1.0)))
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
                 ) {
-                    Text("+1.0L", color = colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("+1.0L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
 
@@ -4300,6 +4432,450 @@ fun RunnerCashConfirmDialog(
                 Text("Go Back")
             }
         }
+    )
+}
+
+// ---------------------------------------------------------------------------
+// 8. RUNNER MORE MENU DIALOG (V8.0)
+// ---------------------------------------------------------------------------
+@Composable
+fun RunnerMoreMenuDialog(
+    item: DailyCustomerCardItem,
+    onDismiss: () -> Unit,
+    onOpenKhata: () -> Unit,
+    onOpenQr: () -> Unit,
+    onOpenReceipt: () -> Unit,
+    onOpenNotes: () -> Unit,
+    onOpenWhatsApp: () -> Unit,
+    onEditMaster: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = item.customer.name,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.primary
+                )
+                Text(
+                    text = "Customer #${item.customer.id} • ${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}",
+                    fontSize = 11.5.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Balance mini card
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    border = BorderStroke(0.5.dp, colorScheme.primary.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Today's Bill: ${CalculationEngine.formatMoney(item.todayBill)}", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            Text("Cash: ${CalculationEngine.formatMoney(item.currentCashInput.toDoubleOrNull() ?: 0.0)}", fontSize = 11.sp, color = colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            if (item.advance > 0) {
+                                Text("Advance: ${CalculationEngine.formatMoney(item.advance)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                            } else {
+                                Text("Due: ${CalculationEngine.formatMoney(item.remainingDue)}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (item.remainingDue > 0) colorScheme.error else colorScheme.onSurface)
+                            }
+                            if (item.pbsPending > 0) {
+                                Text("PBS: ${CalculationEngine.formatMoney(item.pbsPending)}", fontSize = 10.5.sp, color = Color(0xFFC2410C), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Action grid / list
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenKhata()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Khata", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenQr()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("UPI QR", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenReceipt()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Receipt", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenNotes()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Notes", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenWhatsApp()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF25D366)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("WhatsApp", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onEditMaster()
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Edit Master", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+// ---------------------------------------------------------------------------
+// 9. RUNNER DUE UPI QR DIALOG (V8.0)
+// ---------------------------------------------------------------------------
+@Composable
+fun RunnerDueQrDialog(
+    item: DailyCustomerCardItem,
+    upiId: String,
+    payeeName: String,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val effectiveAmount = if (item.remainingDue > 0) item.remainingDue else if (item.todayBill > 0) item.todayBill else 0.0
+
+    val upiUri = remember(item, upiId, effectiveAmount) {
+        val cleanUpi = upiId.ifBlank { "9897259461@upi" }
+        UpiQrGenerator.buildUpiUri(
+            upiId = cleanUpi,
+            payeeName = payeeName.ifBlank { "Shahbuddin Dairy" },
+            amount = if (effectiveAmount > 0) effectiveAmount else null,
+            note = "Due Cust #${item.customer.id} ${item.customer.name}"
+        )
+    }
+
+    val qrBitmap = remember(upiUri) {
+        UpiQrGenerator.generateUpiQrBitmap(upiUri, size = 480)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.QrCode, contentDescription = null, tint = colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Customer Due UPI QR", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = item.customer.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = colorScheme.onSurface
+                )
+                Text(
+                    text = "Customer #${item.customer.id} • Due: ${CalculationEngine.formatMoney(effectiveAmount)}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (effectiveAmount > 0) colorScheme.error else colorScheme.primary
+                )
+
+                if (qrBitmap != null) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                        modifier = Modifier.padding(vertical = 6.dp)
+                    ) {
+                        Image(
+                            bitmap = qrBitmap.asImageBitmap(),
+                            contentDescription = "UPI Due QR",
+                            modifier = Modifier.size(200.dp).padding(6.dp)
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Scan with any UPI App (GPay, PhonePe, Paytm, BHIM)\nAmount ₹${"%.0f".format(effectiveAmount)} pre-filled",
+                    fontSize = 10.5.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val shareText = "शाहबुद्दीन डेयरी (Shahbuddin Dairy)\nग्राहक: ${item.customer.name} (#${item.customer.id})\nबकाया राशि: ₹${"%.0f".format(effectiveAmount)}\nUPI ID: ${upiId.ifBlank { "9897259461@upi" }}\nभुगतान लिंक: $upiUri"
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, shareText)
+                    }
+                    context.startActivity(Intent.createChooser(shareIntent, "Share Due UPI Link"))
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("SHARE UPI LINK")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+// ---------------------------------------------------------------------------
+// 10. RUNNER RECEIPT SHARE DIALOG (V8.0 Image / PDF / WhatsApp)
+// ---------------------------------------------------------------------------
+@Composable
+fun RunnerReceiptShareDialog(
+    item: DailyCustomerCardItem,
+    upiId: String,
+    dairyPhone: String,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+
+    val receiptData = remember(item, upiId, dairyPhone) {
+        val liters = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+        val rate = item.applicableRate
+        val bill = item.todayBill
+        val cash = item.currentCashInput.toDoubleOrNull() ?: 0.0
+        ReceiptData(
+            businessName = "शाहबुद्दीन डेयरी (Shahbuddin Dairy)",
+            businessPhone = dairyPhone.ifBlank { "9897259461" },
+            upiId = upiId,
+            customerName = item.customer.name,
+            customerId = item.customer.id,
+            date = CalculationEngine.todayStr(),
+            milkLiters = liters,
+            milkType = item.customer.milkType,
+            rate = rate,
+            billAmount = bill,
+            previousDue = item.prevDue,
+            cashPaid = cash,
+            totalPaid = cash,
+            advance = item.advance,
+            remainingDue = item.remainingDue,
+            pbsPending = item.pbsPending,
+            receiptNumber = "RCP-${item.customer.id}-${System.currentTimeMillis() % 100000}"
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Share Delivery Receipt", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "${item.customer.name} • #${item.customer.id}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.5.sp,
+                    color = colorScheme.primary
+                )
+                Text(
+                    text = "Milk: ${receiptData.milkLiters}L • Bill: ₹%.0f • Paid: ₹%.0f • Net Due: ₹%.0f".format(
+                        receiptData.billAmount,
+                        receiptData.totalPaid,
+                        receiptData.remainingDue
+                    ),
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // 1. Image Receipt
+                Button(
+                    onClick = {
+                        val upiUri = if (upiId.isNotBlank()) UpiQrGenerator.buildUpiUri(upiId, "Shahbuddin Dairy", receiptData.remainingDue) else null
+                        val qrBitmap = upiUri?.let { UpiQrGenerator.generateUpiQrBitmap(it, 250) }
+                        val bmp = ReceiptImageGenerator.createReceiptBitmap(receiptData, qrBitmap)
+                        val file = ReceiptImageGenerator.saveReceiptImage(context, bmp, receiptData.customerId)
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file
+                        )
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "image/png"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Receipt Image"))
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("SHARE DIGITAL IMAGE RECEIPT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                // 2. PDF Receipt
+                OutlinedButton(
+                    onClick = {
+                        val pdfRes = com.shahbuddindairy.app.pdf.PdfReportGenerator.generateSingleReceiptPdf(context, receiptData)
+                        if (pdfRes.success && pdfRes.uri != null) {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "application/pdf"
+                                putExtra(Intent.EXTRA_STREAM, pdfRes.uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Receipt PDF"))
+                        }
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("SHARE PDF RECEIPT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                // 3. WhatsApp Message
+                OutlinedButton(
+                    onClick = {
+                        val text = "शाहबुद्दीन डेयरी (Shahbuddin Dairy)\nरसीद: ${receiptData.receiptNumber}\nग्राहक: ${receiptData.customerName} (#${receiptData.customerId})\nदिनांक: ${receiptData.date}\nदूध: ${receiptData.milkLiters}L (${receiptData.milkType}) @ ₹${receiptData.rate}/L\nआज का बिल: ₹${receiptData.billAmount}\nपिछला बकाया: ₹${receiptData.previousDue}\nजमा राशि: ₹${receiptData.totalPaid}\nकुल शेष बकाया: ₹${receiptData.remainingDue}\n${if (upiId.isNotBlank()) "UPI ID: $upiId\n" else ""}धन्यवाद!"
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                            setPackage("com.whatsapp")
+                        }
+                        try {
+                            context.startActivity(shareIntent)
+                        } catch (e: Exception) {
+                            val chooser = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                            }, "Share Receipt via WhatsApp")
+                            context.startActivity(chooser)
+                        }
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF25D366)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("SEND VIA WHATSAPP", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = colorScheme.surface
     )
 }
 

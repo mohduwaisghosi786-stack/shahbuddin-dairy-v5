@@ -12,8 +12,8 @@ android {
         applicationId "com.shahbuddindairy.app"
         minSdk 26
         targetSdk 34
-        versionCode 14
-        versionName "7.6.0"
+        versionCode 15
+        versionName "8.0.0"
     }
 
     buildTypes {
@@ -84,6 +84,9 @@ dependencies {
 
     // JSON parsing
     implementation 'com.google.code.gson:gson:2.10.1'
+
+    // QR Code generation (Offline pure java)
+    implementation 'com.google.zxing:core:3.5.3'
 
     // Testing
     testImplementation 'junit:junit:4.13.2'

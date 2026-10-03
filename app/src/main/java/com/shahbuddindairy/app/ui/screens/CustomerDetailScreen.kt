@@ -1,9 +1,11 @@
 package com.shahbuddindairy.app.ui.screens
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
@@ -38,6 +41,8 @@ import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -48,6 +53,10 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.core.content.FileProvider
+import com.shahbuddindairy.app.receipt.ReceiptImageGenerator
+import com.shahbuddindairy.app.receipt.UpiQrGenerator
 import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -107,6 +116,10 @@ fun CustomerDetailScreen(
     var showPbsDialog by remember { mutableStateOf(false) }
     var editingPbsText by remember { mutableStateOf("") }
     var itemToVoid by remember { mutableStateOf<KhataTimelineItem?>(null) }
+    var showUpiQrDialog by remember { mutableStateOf(false) }
+    var showReceiptDialog by remember { mutableStateOf(false) }
+    var showStatementDialog by remember { mutableStateOf(false) }
+    var showTagsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -146,6 +159,19 @@ fun CustomerDetailScreen(
                         )
                     }
                     if (!uiState.customer?.phone.isNullOrBlank()) {
+                        IconButton(onClick = {
+                            uiState.customer?.let { cust ->
+                                shareWhatsAppPaymentReminder(
+                                    context = context,
+                                    customer = cust,
+                                    balance = uiState.currentBalance,
+                                    upiId = uiState.upiId,
+                                    payeeName = uiState.payeeName
+                                )
+                            }
+                        }) {
+                            Text("💬", fontSize = 16.sp)
+                        }
                         IconButton(onClick = {
                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${uiState.customer?.phone}"))
                             context.startActivity(intent)
@@ -390,43 +416,113 @@ fun CustomerDetailScreen(
                     }
                 }
 
-                // 2. QUICK ACTIONS BAR
+                // 2. CUSTOMER 360° ACTIONS BAR (Section 10)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 12.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Button(
                         onClick = { showPaymentDialog = true },
                         colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1.2f)
+                        modifier = Modifier.weight(1.1f)
                     ) {
-                        Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("+ PAYMENT", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ PAY", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
-                        onClick = { viewModel.exportKhataPdf(context) },
+                        onClick = { showUpiQrDialog = true },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("PDF", fontSize = 12.5.sp)
+                        Icon(Icons.Default.QrCode, contentDescription = null, modifier = Modifier.size(15.dp), tint = colorScheme.primary)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("UPI QR", fontSize = 11.5.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { showReceiptDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(15.dp), tint = colorScheme.primary)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("RECEIPT", fontSize = 11.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = { showStatementDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(15.dp), tint = colorScheme.primary)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("MONTH", fontSize = 11.sp)
                     }
 
                     OutlinedButton(
                         onClick = { showEditDialog = true },
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(15.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                // SMART CUSTOMER TAGS BAR (Section 12)
+                val tagsScroll = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(tagsScroll)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.clickable { showTagsDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🏷️ Tags (${uiState.tags.size})", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("+", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        }
+                    }
+
+                    if (uiState.tags.isEmpty()) {
+                        Text(
+                            text = "Tap to add Monthly, Buffalo, VIP tags...",
+                            fontSize = 11.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        uiState.tags.forEach { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = colorScheme.primaryContainer,
+                                modifier = Modifier.clickable { viewModel.toggleCustomerTag(tag) }
+                            ) {
+                                Text(
+                                    text = tag,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colorScheme.primary,
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(3.dp))
 
                 // 3. TABS: KHATA TIMELINE / MILK / PAYMENTS
                 TabRow(
@@ -703,6 +799,46 @@ fun CustomerDetailScreen(
                 },
                 shape = RoundedCornerShape(14.dp),
                 containerColor = colorScheme.surface
+            )
+        }
+
+        // CUSTOMER 360° UPI QR DIALOG (Section 35 & 38)
+        if (showUpiQrDialog && uiState.customer != null) {
+            CustomerDueQrDialog(
+                customer = uiState.customer!!,
+                balance = uiState.currentBalance,
+                upiId = uiState.upiId,
+                payeeName = uiState.payeeName,
+                onDismiss = { showUpiQrDialog = false }
+            )
+        }
+
+        // CUSTOMER 360° RECEIPT OPTIONS DIALOG (Section 36, 37, 39)
+        if (showReceiptDialog && uiState.customer != null) {
+            val receiptData = viewModel.getReceiptData()
+            CustomerReceiptOptionsDialog(
+                receiptData = receiptData,
+                upiId = uiState.upiId,
+                onDismiss = { showReceiptDialog = false },
+                onExportPdf = { viewModel.exportSingleReceiptPdf(context, receiptData) }
+            )
+        }
+
+        // MONTHLY CUSTOMER STATEMENT DIALOG (Section 40)
+        if (showStatementDialog && uiState.customer != null) {
+            CustomerMonthlyStatementDialog(
+                customer = uiState.customer!!,
+                onDismiss = { showStatementDialog = false },
+                onExportPdf = { month -> viewModel.exportMonthlyStatementPdf(context, month) }
+            )
+        }
+
+        // SMART CUSTOMER TAGS DIALOG (Section 12)
+        if (showTagsDialog) {
+            CustomerTagsDialog(
+                activeTags = uiState.tags,
+                onToggleTag = { tag -> viewModel.toggleCustomerTag(tag) },
+                onDismiss = { showTagsDialog = false }
             )
         }
     }
@@ -1318,5 +1454,233 @@ private fun CustomerNotesTabContent(
             }
         }
     }
+}
+
+@Composable
+fun CustomerReceiptOptionsDialog(
+    receiptData: com.shahbuddindairy.app.receipt.ReceiptData,
+    upiId: String,
+    onDismiss: () -> Unit,
+    onExportPdf: () -> Unit
+) {
+    val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Generate Payment Receipt", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("#${receiptData.customerId} ${receiptData.customerName} • ${CalculationEngine.formatDateDisplay(receiptData.date)}", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Digital Image Receipt
+                Button(
+                    onClick = {
+                        val upiUri = if (upiId.isNotBlank()) UpiQrGenerator.buildUpiUri(upiId, receiptData.businessName, receiptData.remainingDue) else null
+                        val qrBitmap = upiUri?.let { UpiQrGenerator.generateUpiQrBitmap(it, 250) }
+                        val bmp = ReceiptImageGenerator.createReceiptBitmap(receiptData, qrBitmap)
+                        val file = ReceiptImageGenerator.saveReceiptImage(context, bmp, receiptData.customerId)
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file
+                        )
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "image/png"
+                            putExtra(Intent.EXTRA_STREAM, uri as android.os.Parcelable)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share Receipt Image"))
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("DIGITAL IMAGE RECEIPT (With QR)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // PDF Receipt
+                OutlinedButton(
+                    onClick = {
+                        onExportPdf()
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("SINGLE RECEIPT PDF", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+
+                // WhatsApp Text Receipt
+                OutlinedButton(
+                    onClick = {
+                        val dueStr = if (receiptData.remainingDue > 0) "₹${CalculationEngine.formatMoney(receiptData.remainingDue)}" else "₹0 (खाता चुकता)"
+                        val text = "🧾 *शाहबुद्दीन डेयरी (Shahbuddin Dairy)*\n" +
+                                "ग्राहक: #${receiptData.customerId} ${receiptData.customerName}\n" +
+                                "दिनांक: ${receiptData.date}\n" +
+                                "दूध: ${receiptData.milkLiters}L (${receiptData.milkType}) @ ₹${receiptData.rate}\n" +
+                                "आज का बिल: ₹${receiptData.billAmount}\n" +
+                                "पिछला बकाया: ₹${receiptData.previousDue}\n" +
+                                "जमा: ₹${receiptData.totalPaid} (${if (receiptData.onlinePaid > 0) "ऑनलाइन" else "नकद"})\n" +
+                                "*कुल शेष बकाया: $dueStr*\n" +
+                                (if (upiId.isNotBlank()) "UPI ID: $upiId\n" else "") +
+                                "धन्यवाद।"
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        }
+                        shareIntent.setPackage("com.whatsapp")
+                        try {
+                            context.startActivity(shareIntent)
+                        } catch (_: Exception) {
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, text)
+                            }, "Share Receipt via WhatsApp"))
+                        }
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Text("💬 WHATSAPP TEXT RECEIPT", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+        shape = RoundedCornerShape(14.dp)
+    )
+}
+
+@Composable
+fun CustomerMonthlyStatementDialog(
+    customer: CustomerEntity,
+    onDismiss: () -> Unit,
+    onExportPdf: (String) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val currentMonth = CalculationEngine.todayStr().take(7)
+    val parts = currentMonth.split("-")
+    val y = parts.getOrNull(0)?.toIntOrNull() ?: 2026
+    val m = parts.getOrNull(1)?.toIntOrNull() ?: 10
+    val prevMonth = if (m <= 1) "%04d-12".format(y - 1) else "%04d-%02d".format(y, m - 1)
+    var selectedMonth by remember { mutableStateOf(currentMonth) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Monthly Customer Statement", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("#${customer.id} ${customer.name}", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Select Billing Month (माह चुनें):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedMonth == currentMonth,
+                        onClick = { selectedMonth = currentMonth },
+                        label = { Text("Current ($currentMonth)", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedMonth == prevMonth,
+                        onClick = { selectedMonth = prevMonth },
+                        label = { Text("Previous ($prevMonth)", fontSize = 12.sp) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = {
+                        onExportPdf(selectedMonth)
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("GENERATE MONTHLY PDF", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+        shape = RoundedCornerShape(14.dp)
+    )
+}
+
+@Composable
+fun CustomerTagsDialog(
+    activeTags: Set<String>,
+    onToggleTag: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val predefinedTags = listOf("Monthly", "Cash", "Due", "Advance", "Buffalo", "Cow", "Morning", "Evening", "VIP")
+    val colorScheme = MaterialTheme.colorScheme
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Smart Customer Tags", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "टैग से ग्राहकों को आसानी से पहचानें (वित्तीय रिकॉर्ड अप्रभावित रहेगा):",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    predefinedTags.chunked(3).forEach { rowTags ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            rowTags.forEach { tag ->
+                                val isSelected = activeTags.contains(tag)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onToggleTag(tag) },
+                                    label = { Text(tag, fontSize = 11.5.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = colorScheme.primary,
+                                        selectedLabelColor = colorScheme.onPrimary
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss, shape = RoundedCornerShape(8.dp)) {
+                Text("Done")
+            }
+        },
+        shape = RoundedCornerShape(14.dp)
+    )
 }
 

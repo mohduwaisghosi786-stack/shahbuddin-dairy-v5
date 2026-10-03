@@ -35,9 +35,11 @@ data class BackupScreenUiState(
     val restoreResult: BackupManager.RestoreResult? = null,
     val payeeName: String = "Shahbuddin Dairy",
     val dairyPhone: String = "9897259461",
+    val whatsappPhone: String = "9897259461",
     val upiId: String = "",
     val notifEnabled: Boolean = true,
-    val notifPrivacy: String = "full"
+    val notifPrivacy: String = "full",
+    val isAppLockEnabled: Boolean = false
 )
 
 class BackupViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,10 +73,12 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
             val payee = repository.getSetting("payee_name") ?: "Shahbuddin Dairy"
             val phone = repository.getSetting("dairy_phone") ?: "9897259461"
             val upi = repository.getSetting("upi_id") ?: ""
+            val whatsapp = repository.getSetting("whatsapp_phone") ?: phone
             val notifEn = repository.getSetting("notif_enabled") != "false"
             val notifPriv = repository.getSetting("notif_privacy") ?: "full"
 
             val hasSafety = BackupManager.hasSafetySnapshot(app)
+            val isLock = com.shahbuddindairy.app.security.AppLockManager.getInstance(app).isLockConfigured()
 
             _uiState.value = _uiState.value.copy(
                 lastBackupTime = lastTime,
@@ -88,9 +92,11 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
                 hasSafetySnapshot = hasSafety,
                 payeeName = payee,
                 dairyPhone = phone,
+                whatsappPhone = whatsapp,
                 upiId = upi,
                 notifEnabled = notifEn,
-                notifPrivacy = notifPriv
+                notifPrivacy = notifPriv,
+                isAppLockEnabled = isLock
             )
         }
     }
@@ -233,11 +239,36 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun saveSettings(payee: String, phone: String, upi: String) {
+        saveUpiSettings(payee, phone, upi, phone)
+    }
+
+    fun saveUpiSettings(payee: String, phone: String, upi: String, whatsapp: String) {
         viewModelScope.launch {
             repository.setSetting("payee_name", payee)
             repository.setSetting("dairy_phone", phone)
             repository.setSetting("upi_id", upi)
+            repository.setSetting("whatsapp_phone", whatsapp)
             refreshStatus()
         }
+    }
+
+    fun setAppLock(enabled: Boolean, pin: String? = null, currentPin: String? = null): Boolean {
+        val appLockManager = com.shahbuddindairy.app.security.AppLockManager.getInstance(app)
+        val success = if (enabled && pin != null) {
+            appLockManager.setPin(pin)
+        } else if (!enabled && currentPin != null) {
+            appLockManager.disableLock(currentPin)
+        } else {
+            false
+        }
+        refreshStatus()
+        return success
+    }
+
+    fun changeAppLockPin(currentPin: String, newPin: String): Boolean {
+        val appLockManager = com.shahbuddindairy.app.security.AppLockManager.getInstance(app)
+        val success = appLockManager.changePin(currentPin, newPin)
+        refreshStatus()
+        return success
     }
 }

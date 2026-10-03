@@ -20,6 +20,8 @@ class DailyTaskNotificationReceiver : BroadcastReceiver() {
         const val ACTION_PREV = "com.shahbuddindairy.app.ACTION_NOTIF_PREV"
         const val ACTION_NEXT = "com.shahbuddindairy.app.ACTION_NOTIF_NEXT"
         const val EXTRA_CUSTOMER_ID = "extra_customer_id"
+
+        private val lastActionTime = java.util.concurrent.ConcurrentHashMap<String, Long>()
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -27,12 +29,21 @@ class DailyTaskNotificationReceiver : BroadcastReceiver() {
         val customerId = intent.getLongExtra(EXTRA_CUSTOMER_ID, -1L)
         if (customerId <= 0) return
 
+        val key = "${action}_$customerId"
+        val nowMs = System.currentTimeMillis()
+        val last = lastActionTime[key] ?: 0L
+        if (nowMs - last < 1500L) {
+            return
+        }
+        lastActionTime[key] = nowMs
+
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val app = context.applicationContext as DairyApplication
                 val repo = app.repository
                 val today = CalculationEngine.todayStr()
+
 
                 when (action) {
                     ACTION_DELIVER -> {

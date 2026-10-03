@@ -121,69 +121,52 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
     private val _selectedMohalla = MutableStateFlow("ALL")
     val selectedMohalla = _selectedMohalla.asStateFlow()
 
-    val uiState = combine(
-        repository.getAllCustomers(),
-        repository.getAllPbsSettingsFlow(),
-        _searchQuery,
-        _selectedMohalla
-    ) { customers, pbsSettings, query, mohalla ->
-        buildUiState(customers, pbsSettings, query, mohalla)
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        CustomersUiState(isLoading = true)
+    private data class BaseCustomerData(
+        val allCards: List<CustomerCardItem>,
+        val totalCustomersCount: Int,
+        val totalMarketDue: Double,
+        val totalAdvance: Double,
+        val mohallas: List<String>
     )
 
-    private suspend fun buildUiState(
-        customers: List<CustomerEntity>,
-        pbsSettings: List<com.shahbuddindairy.app.data.model.AppSettingEntity>,
-        query: String,
-        mohallaFilter: String
-    ): CustomersUiState = withContext(Dispatchers.IO) {
-        val allDelivs = repository.getAllDeliveriesDirect()
-        val allPayments = repository.getAllPaymentsDirect()
-        val delivsByCust = allDelivs.groupBy { it.customerId }
-        val paymentsByCust = allPayments.groupBy { it.customerId }
+    private val baseCustomersFlow = combine(
+        repository.getAllCustomers(),
+        repository.getAllPbsSettingsFlow()
+    ) { customers, pbsSettings ->
+        withContext(Dispatchers.IO) {
+            val allDelivs = repository.getAllDeliveriesDirect()
+            val allPayments = repository.getAllPaymentsDirect()
+            val delivsByCust = allDelivs.groupBy { it.customerId }
+            val paymentsByCust = allPayments.groupBy { it.customerId }
 
-        val pbsMap = mutableMapOf<Long, Double>()
-        for (s in pbsSettings) {
-            if (s.key.startsWith("pbs_pending_")) {
-                val cId = s.key.removePrefix("pbs_pending_").toLongOrNull()
-                if (cId != null) {
-                    pbsMap[cId] = s.value.toDoubleOrNull() ?: 0.0
+            val pbsMap = mutableMapOf<Long, Double>()
+            for (s in pbsSettings) {
+                if (s.key.startsWith("pbs_pending_")) {
+                    val cId = s.key.removePrefix("pbs_pending_").toLongOrNull()
+                    if (cId != null) {
+                        pbsMap[cId] = s.value.toDoubleOrNull() ?: 0.0
+                    }
                 }
             }
-        }
 
-        var totalDue = 0.0
-        var totalAdv = 0.0
-        val mohallaSet = sortedSetOf<String>()
+            var totalDue = 0.0
+            var totalAdv = 0.0
+            val mohallaSet = sortedSetOf<String>()
+            val cards = mutableListOf<CustomerCardItem>()
 
-        val cards = mutableListOf<CustomerCardItem>()
+            for (c in customers) {
+                if (c.isArchived == 1) continue
+                if (c.mohalla.isNotBlank()) mohallaSet.add(c.mohalla)
 
-        for (c in customers) {
-            if (c.isArchived == 1) continue
-            if (c.mohalla.isNotBlank()) mohallaSet.add(c.mohalla)
+                val custDelivs = delivsByCust[c.id] ?: emptyList()
+                val custPayments = paymentsByCust[c.id] ?: emptyList()
 
-            val custDelivs = delivsByCust[c.id] ?: emptyList()
-            val custPayments = paymentsByCust[c.id] ?: emptyList()
+                val bal = CalculationEngine.calculateCustomerBalance(c.id, custDelivs, custPayments)
+                if (bal > 0) totalDue += bal else if (bal < 0) totalAdv += -bal
 
-            val bal = CalculationEngine.calculateCustomerBalance(c.id, custDelivs, custPayments)
-            if (bal > 0) totalDue += bal else if (bal < 0) totalAdv += -bal
+                val lastPay = CalculationEngine.getLastPayment(c.id, custDelivs, custPayments)
+                val pbs = pbsMap[c.id] ?: 0.0
 
-            val lastPay = CalculationEngine.getLastPayment(c.id, custDelivs, custPayments)
-            val pbs = pbsMap[c.id] ?: 0.0
-
-            val matchesQuery = query.isBlank() ||
-                    c.name.contains(query, ignoreCase = true) ||
-                    c.id.toString() == query.trim() ||
-                    c.phone.contains(query.trim()) ||
-                    c.mohalla.contains(query, ignoreCase = true) ||
-                    c.landmark.contains(query, ignoreCase = true)
-
-            val matchesMohalla = mohallaFilter == "ALL" || c.mohalla == mohallaFilter
-
-            if (matchesQuery && matchesMohalla) {
                 cards.add(
                     CustomerCardItem(
                         customer = c,
@@ -194,19 +177,61 @@ class CustomersViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                 )
             }
+
+            BaseCustomerData(
+                allCards = cards,
+                totalCustomersCount = customers.count { it.isArchived == 0 },
+                totalMarketDue = CalculationEngine.round2(totalDue),
+                totalAdvance = CalculationEngine.round2(totalAdv),
+                mohallas = listOf("ALL") + mohallaSet.toList()
+            )
+        }
+    }
+
+    val uiState = combine(
+        baseCustomersFlow,
+        _searchQuery,
+        _selectedMohalla
+    ) { base, query, mohalla ->
+        val q = query.trim()
+        val filtered = base.allCards.filter { item ->
+            val c = item.customer
+            val matchesQuery = q.isBlank() ||
+                    c.name.contains(q, ignoreCase = true) ||
+                    c.id.toString() == q ||
+                    c.phone.contains(q) ||
+                    c.mohalla.contains(q, ignoreCase = true) ||
+                    c.landmark.contains(q, ignoreCase = true)
+            val matchesMohalla = mohalla == "ALL" || c.mohalla == mohalla
+            matchesQuery && matchesMohalla
         }
 
         CustomersUiState(
-            customers = cards,
-            totalCustomersCount = customers.count { it.isArchived == 0 },
-            totalMarketDue = CalculationEngine.round2(totalDue),
-            totalAdvance = CalculationEngine.round2(totalAdv),
+            customers = filtered,
+            totalCustomersCount = base.totalCustomersCount,
+            totalMarketDue = base.totalMarketDue,
+            totalAdvance = base.totalAdvance,
             searchQuery = query,
-            selectedMohalla = mohallaFilter,
-            mohallas = listOf("ALL") + mohallaSet.toList(),
+            selectedMohalla = mohalla,
+            mohallas = base.mohallas,
             isLoading = false
         )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        CustomersUiState(isLoading = true)
+    )
+
+    fun saveRouteOrder(reordered: List<CustomerEntity>, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val updates = reordered.mapIndexed { index, cust ->
+                Pair(cust.id, index)
+            }
+            repository.updateCustomerRouteOrders(updates)
+            onSuccess?.invoke()
+        }
     }
+
 
     fun onSearchQueryChanged(q: String) {
         _searchQuery.value = q

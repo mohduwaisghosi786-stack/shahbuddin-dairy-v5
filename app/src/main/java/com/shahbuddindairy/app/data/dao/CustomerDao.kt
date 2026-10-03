@@ -42,4 +42,8 @@ interface CustomerDao {
 
     @Update
     suspend fun updateCustomer(customer: CustomerEntity)
+
+    @Query("UPDATE customers SET routeOrder = :order WHERE id = :customerId")
+    suspend fun updateRouteOrder(customerId: Long, order: Int)
 }
+

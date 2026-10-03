@@ -217,6 +217,37 @@ class CustomerDetailViewModel(
         }
     }
 
+    fun recordDueAdjustment(
+        currentBalance: Double,
+        targetDue: Double,
+        mode: String = "Adjustment",
+        note: String = "Due Settlement / Adjustment",
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val delta = CalculationEngine.round2(currentBalance - targetDue)
+            if (delta != 0.0) {
+                val id = "pay_adj_${System.currentTimeMillis().toString(36)}_${customerId}"
+                val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                val today = CalculationEngine.todayStr()
+                val payment = PaymentEntity(
+                    id = id,
+                    customerId = customerId,
+                    date = today,
+                    amount = delta,
+                    paymentMode = mode,
+                    paymentSubtype = "Settlement",
+                    note = note.ifBlank { "Due Settlement to ${CalculationEngine.formatMoney(targetDue)}" },
+                    createdAt = isoDate,
+                    isVoid = false
+                )
+                repository.savePayment(payment)
+            }
+            onSuccess?.invoke()
+        }
+    }
+
+
     fun voidTransaction(item: KhataTimelineItem) {
         viewModelScope.launch {
             if (item.type == "DELIVERY") {

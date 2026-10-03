@@ -1,6 +1,10 @@
 package com.shahbuddindairy.app.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,14 +27,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material3.AlertDialog
@@ -43,6 +50,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -50,6 +58,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -83,6 +92,7 @@ fun ReportsScreen(
 
     var listFilter by remember { mutableStateOf("ALL") }
     var searchQuery by remember { mutableStateOf("") }
+    var showWhatsAppDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -273,26 +283,41 @@ fun ReportsScreen(
             }
         }
 
-        // EXPORT PDF & SHARE BUTTONS
+        // EXPORT PDF & WHATSAPP REPORT BUTTONS
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(
+            OutlinedButton(
                 onClick = { viewModel.exportDailyPdf(context) },
-                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.primary),
                 shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary),
                 modifier = Modifier
                     .weight(1f)
                     .height(42.dp)
             ) {
-                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(17.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("EXPORT DAILY PDF", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("DAILY PDF", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+            }
+
+            Button(
+                onClick = { showWhatsAppDialog = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .weight(1.2f)
+                    .height(42.dp)
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(5.dp))
+                Text("WHATSAPP REPORT", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
             }
         }
+
 
         // SEARCH & FILTER CHIPS ROW
         Row(
@@ -426,7 +451,100 @@ fun ReportsScreen(
             containerColor = colorScheme.surface
         )
     }
+
+    // WHATSAPP SALES REPORT DIALOG
+    if (showWhatsAppDialog) {
+        val reportText = remember(uiState) { viewModel.generateWhatsAppReportText(uiState) }
+        AlertDialog(
+            onDismissRequest = { showWhatsAppDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF25D366), modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("WhatsApp Daily Sales Report", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Preview (Ready to Share / Copy):",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp)
+                            .background(colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                            .padding(10.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = reportText,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = colorScheme.onSurface
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("Daily Sales Report", reportText)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "Report copied to clipboard! ✓", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Copy", fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, reportText)
+                                setPackage("com.whatsapp")
+                            }
+                            try {
+                                context.startActivity(shareIntent)
+                            } catch (e: Exception) {
+                                val chooser = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, reportText)
+                                }, "Share Daily Sales Report")
+                                context.startActivity(chooser)
+                            }
+                            showWhatsAppDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Share", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showWhatsAppDialog = false }) {
+                    Text("Close")
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = colorScheme.surface
+        )
+    }
 }
+
 
 @Composable
 fun DailyReportRowCard(

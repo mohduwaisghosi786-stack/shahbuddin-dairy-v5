@@ -26,9 +26,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -40,10 +44,16 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -81,6 +91,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.shahbuddindairy.app.data.model.CustomerEntity
 import com.shahbuddindairy.app.domain.CalculationEngine
 import com.shahbuddindairy.app.notification.DailyTaskNotificationManager
 import com.shahbuddindairy.app.ui.components.AppTopHeader
@@ -109,11 +120,15 @@ fun DailyTaskScreen(
 
     // Mode: 0 = Route List, 1 = Runner Mode (1-by-1 step)
     var viewMode by remember { mutableIntStateOf(0) }
-    var runnerIndex by remember { mutableIntStateOf(0) }
+    var activeCustomerId by remember { mutableStateOf<Long?>(null) }
+    var showRouteReorderDialog by remember { mutableStateOf(false) }
+    var showCalculatorDialog by remember { mutableStateOf(false) }
+    var showQuickCustomerDialog by remember { mutableStateOf(false) }
 
     // External PBS Pending Amount Edit Dialog State
     var editingPbsCustomer by remember { mutableStateOf<Pair<Long, Double>?>(null) }
     var editingPbsText by remember { mutableStateOf("") }
+
 
     // Synchronize ongoing delivery route notification
     LaunchedEffect(uiState.selectedDate, uiState.completedCount) {
@@ -233,25 +248,86 @@ fun DailyTaskScreen(
                 }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 11.dp),
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = if (viewMode == 0) Icons.AutoMirrored.Filled.DirectionsRun else Icons.AutoMirrored.Filled.FormatListBulleted,
                         contentDescription = null,
                         tint = colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
                     Text(
                         text = if (viewMode == 0) "Runner" else "List",
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = colorScheme.primary
                     )
                 }
             }
+
+            // Route Reorder Button
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = colorScheme.surfaceContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                modifier = Modifier.clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showRouteReorderDialog = true
+                }
+            ) {
+                Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.SwapVert,
+                        contentDescription = "Route Order",
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            }
+
+            // Dairy Calculator Button
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = colorScheme.surfaceContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                modifier = Modifier.clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showCalculatorDialog = true
+                }
+            ) {
+                Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = "Calculator",
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            }
+
+            // Quick Guest Sale Button
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = colorScheme.surfaceContainer,
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                modifier = Modifier.clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showQuickCustomerDialog = true
+                }
+            ) {
+                Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PersonAdd,
+                        contentDescription = "Quick Customer",
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+            }
         }
+
 
         // FILTER CHIPS ROW
         FilterChipsRow(
@@ -279,8 +355,11 @@ fun DailyTaskScreen(
         } else if (viewMode == 1) {
             // RUNNER MODE (Single customer 1-hand delivery runner)
             val cards = uiState.customerCards
-            val currentIndex = runnerIndex.coerceIn(0, (cards.size - 1).coerceAtLeast(0))
-            val currentItem = cards.getOrNull(currentIndex)
+            val currentItem = cards.find { it.customer.id == activeCustomerId } ?: cards.firstOrNull()
+            val currentIndex = if (currentItem != null) cards.indexOf(currentItem).coerceAtLeast(0) else 0
+            if (activeCustomerId != currentItem?.customer?.id) {
+                activeCustomerId = currentItem?.customer?.id
+            }
 
             if (currentItem != null) {
                 DailyTaskRunnerCard(
@@ -292,11 +371,11 @@ fun DailyTaskScreen(
                     nagaCount = uiState.nagaCount,
                     onPrev = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (currentIndex > 0) runnerIndex = currentIndex - 1
+                        if (currentIndex > 0) activeCustomerId = cards[currentIndex - 1].customer.id
                     },
                     onNext = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (currentIndex < cards.size - 1) runnerIndex = currentIndex + 1
+                        if (currentIndex < cards.size - 1) activeCustomerId = cards[currentIndex + 1].customer.id
                     },
                     onQuantityChanged = { q -> viewModel.onQuantityChanged(currentItem.customer.id, q) },
                     onCashChanged = { c -> viewModel.onCashChanged(currentItem.customer.id, c) },
@@ -310,10 +389,12 @@ fun DailyTaskScreen(
                     },
                     onNagaClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val nextTargetId = cards.getOrNull(currentIndex + 1)?.customer?.id ?: cards.getOrNull(currentIndex - 1)?.customer?.id
                         viewModel.markNaga(currentItem) {
-                            if (currentIndex < cards.size - 1) runnerIndex = currentIndex + 1
+                            if (nextTargetId != null) activeCustomerId = nextTargetId
                         }
                     },
+
                     onKhataClicked = { onNavigateToCustomerKhata(currentItem.customer.id) },
                     onPbsEditClicked = {
                         editingPbsCustomer = Pair(currentItem.customer.id, currentItem.pbsPending)
@@ -405,13 +486,20 @@ fun DailyTaskScreen(
             advance = advance,
             onConfirm = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                val currentCards = uiState.customerCards
+                val cIdx = currentCards.indexOfFirst { it.customer.id == item.customer.id }
+                val nextTargetId = if (cIdx >= 0) {
+                    currentCards.getOrNull(cIdx + 1)?.customer?.id ?: currentCards.getOrNull(cIdx - 1)?.customer?.id
+                } else null
+
                 viewModel.confirmAndSaveTransaction {
-                    if (viewMode == 1 && runnerIndex < uiState.customerCards.size - 1) {
-                        runnerIndex++
+                    if (viewMode == 1 && nextTargetId != null) {
+                        activeCustomerId = nextTargetId
                     }
                 }
             },
             onDismiss = { viewModel.dismissConfirmDialog() }
+
         )
     }
 
@@ -471,7 +559,47 @@ fun DailyTaskScreen(
             }
         )
     }
+
+    // ROUTE REORDER DIALOG
+    if (showRouteReorderDialog) {
+        RouteReorderDialog(
+            initialCustomers = uiState.allActiveCustomers,
+            onDismiss = { showRouteReorderDialog = false },
+            onSaveOrder = { newOrder: List<CustomerEntity> ->
+                viewModel.saveRouteOrder(newOrder) {
+                    showRouteReorderDialog = false
+                }
+            }
+        )
+    }
+
+    // DAIRY CALCULATOR DIALOG
+    if (showCalculatorDialog) {
+        DairyCalculatorDialog(
+            onDismiss = { showCalculatorDialog = false }
+        )
+    }
+
+    // QUICK GUEST CUSTOMER DIALOG
+    if (showQuickCustomerDialog) {
+        QuickCustomerDialog(
+            onDismiss = { showQuickCustomerDialog = false },
+            onSave = { name, milkType, liters, rate, cash, saveAsRegular ->
+                viewModel.addQuickCustomerAndDeliver(
+                    name = name,
+                    milkType = milkType,
+                    liters = liters,
+                    rate = rate,
+                    cash = cash,
+                    saveAsRegular = saveAsRegular
+                ) {
+                    showQuickCustomerDialog = false
+                }
+            }
+        )
+    }
 }
+
 
 @Composable
 private fun DateSelectorHeader(
@@ -643,7 +771,7 @@ fun DailyCustomerCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "#${item.customer.id}",
+                        text = "#${item.routeIndex + 1}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.5.sp,
                         color = colorScheme.primary
@@ -687,12 +815,13 @@ fun DailyCustomerCard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}",
+                            text = "ID: #${item.customer.id} • ${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}",
                             fontSize = 11.5.sp,
                             color = colorScheme.onSurfaceVariant
                         )
                     }
                 }
+
 
                 Column(horizontalAlignment = Alignment.End) {
                     StatusBadge(status = item.statusText)
@@ -1198,7 +1327,7 @@ fun DailyTaskRunnerCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "#${item.customer.id}",
+                        text = "#${item.routeIndex + 1}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp,
                         color = colorScheme.primary
@@ -1213,11 +1342,12 @@ fun DailyTaskRunnerCard(
                         color = colorScheme.onSurface
                     )
                     Text(
-                        text = "${item.customer.mohalla} ${if (item.customer.landmark.isNotBlank()) "• ${item.customer.landmark}" else ""}",
+                        text = "ID: #${item.customer.id} • ${item.customer.mohalla} ${if (item.customer.landmark.isNotBlank()) "• ${item.customer.landmark}" else ""}",
                         fontSize = 13.sp,
                         color = colorScheme.onSurfaceVariant
                     )
                 }
+
                 IconButton(onClick = onKhataClicked) {
                     Icon(Icons.Default.History, contentDescription = "Khata", tint = colorScheme.primary)
                 }
@@ -1475,3 +1605,460 @@ fun DailyTaskRunnerCard(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// 1. ROUTE REORDER & ORDERING DIALOG
+// ---------------------------------------------------------------------------
+@Composable
+fun RouteReorderDialog(
+    initialCustomers: List<CustomerEntity>,
+    onDismiss: () -> Unit,
+    onSaveOrder: (List<CustomerEntity>) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var currentList by remember(initialCustomers) { mutableStateOf(initialCustomers) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SwapVert, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Route Order Manager", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+                Text(
+                    text = "${currentList.size} Customers",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Use ▲ / ▼ to reorder delivery route. Route # updates without changing Customer IDs.",
+                    fontSize = 11.5.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Sort Presets Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = initialCustomers }
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = currentList.sortedBy { it.name } }
+                    ) {
+                        Text("Sort: Name", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = currentList.sortedWith(compareBy({ it.mohalla }, { it.name })) }
+                    ) {
+                        Text("Sort: Mohalla", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = currentList.sortedBy { it.id } }
+                    ) {
+                        Text("Sort: ID", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Reorderable list
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                        .background(colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                        .padding(6.dp)
+                ) {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(currentList, key = { it.id }) { customer ->
+                            val index = currentList.indexOf(customer)
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "#${index + 1}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = colorScheme.primary
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = customer.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp,
+                                            color = colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "ID: #${customer.id} • ${customer.mohalla}",
+                                            fontSize = 10.5.sp,
+                                            color = colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    // Up arrow
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val mutable = currentList.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(index - 1, item)
+                                                currentList = mutable
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                    }
+
+                                    // Down arrow
+                                    IconButton(
+                                        onClick = {
+                                            if (index < currentList.size - 1) {
+                                                val mutable = currentList.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(index + 1, item)
+                                                currentList = mutable
+                                            }
+                                        },
+                                        enabled = index < currentList.size - 1,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSaveOrder(currentList) },
+                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("SAVE ROUTE ORDER", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+// ---------------------------------------------------------------------------
+// 2. DAIRY CALCULATOR DIALOG
+// ---------------------------------------------------------------------------
+@Composable
+fun DairyCalculatorDialog(
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    var litersText by remember { mutableStateOf("1.5") }
+    var rateText by remember { mutableStateOf("60") }
+    var cashText by remember { mutableStateOf("") }
+    var prevDueText by remember { mutableStateOf("0") }
+
+    val liters = litersText.toDoubleOrNull() ?: 0.0
+    val rate = rateText.toDoubleOrNull() ?: 0.0
+    val cash = cashText.toDoubleOrNull() ?: 0.0
+    val prevDue = prevDueText.toDoubleOrNull() ?: 0.0
+
+    val bill = CalculationEngine.round2(liters * rate)
+    val totalReq = CalculationEngine.round2(bill + prevDue)
+    val suggestedMilkFromCash = if (rate > 0 && cash > 0) CalculationEngine.round2(cash / rate) else null
+    val net = CalculationEngine.round2(totalReq - cash)
+    val remDue = if (net > 0) net else 0.0
+    val advance = if (net < 0) CalculationEngine.round2(-net) else 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Calculate, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Dairy Calculator", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = litersText,
+                        onValueChange = { litersText = it },
+                        label = { Text("Milk (L)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = rateText,
+                        onValueChange = { rateText = it },
+                        label = { Text("Rate (₹/L)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = prevDueText,
+                        onValueChange = { prevDueText = it },
+                        label = { Text("Prev Due (₹)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = cashText,
+                        onValueChange = { cashText = it },
+                        label = { Text("Cash Given (₹)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Results Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Milk Bill:", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+                            Text(CalculationEngine.formatMoney(bill), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total Required (Bill + Prev):", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+                            Text(CalculationEngine.formatMoney(totalReq), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (suggestedMilkFromCash != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { litersText = "%.2f".format(Locale.US, suggestedMilkFromCash) },
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Cash ₹%.0f → Suggested Milk:".format(cash), fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
+                                Text("%.2f L (Tap to use)".format(suggestedMilkFromCash), fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                            }
+                        }
+                        HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(if (advance > 0) "Advance (अग्रिम):" else "Remaining Due (बकाया):", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (advance > 0) colorScheme.primary else StatusRed)
+                            Text(if (advance > 0) CalculationEngine.formatMoney(advance) else CalculationEngine.formatMoney(remDue), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (advance > 0) colorScheme.primary else StatusRed)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss, shape = RoundedCornerShape(8.dp)) {
+                Text("Done")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+// ---------------------------------------------------------------------------
+// 3. QUICK / GUEST CUSTOMER DIALOG
+// ---------------------------------------------------------------------------
+@Composable
+fun QuickCustomerDialog(
+    onDismiss: () -> Unit,
+    onSave: (name: String, milkType: String, liters: Double, rate: Double, cash: Double, saveAsRegular: Boolean) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    var name by remember { mutableStateOf("") }
+    var milkType by remember { mutableStateOf("भैंस") }
+    var litersText by remember { mutableStateOf("1.0") }
+    var rateText by remember { mutableStateOf("60") }
+    var cashText by remember { mutableStateOf("60") }
+    var saveAsRegular by remember { mutableStateOf(false) }
+
+    val liters = litersText.toDoubleOrNull() ?: 1.0
+    val rate = rateText.toDoubleOrNull() ?: 60.0
+    val bill = CalculationEngine.round2(liters * rate)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.PersonAdd, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Quick / Guest Customer", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name (Optional)") },
+                    placeholder = { Text("Guest Customer") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Milk type chips
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("भैंस", "गाय").forEach { type ->
+                        FilterChip(
+                            selected = milkType == type,
+                            onClick = { milkType = type },
+                            label = { Text(type, fontWeight = if (milkType == type) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colorScheme.primary,
+                                selectedLabelColor = colorScheme.onPrimary
+                            )
+                        )
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = litersText,
+                        onValueChange = {
+                            litersText = it
+                            val l = it.toDoubleOrNull() ?: 0.0
+                            val r = rateText.toDoubleOrNull() ?: 60.0
+                            cashText = "%.0f".format(Locale.US, l * r)
+                        },
+                        label = { Text("Liters (दूध)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = rateText,
+                        onValueChange = {
+                            rateText = it
+                            val r = it.toDoubleOrNull() ?: 0.0
+                            val l = litersText.toDoubleOrNull() ?: 1.0
+                            cashText = "%.0f".format(Locale.US, l * r)
+                        },
+                        label = { Text("Rate (₹/L)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = cashText,
+                    onValueChange = { cashText = it },
+                    label = { Text("Cash Received (₹)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = saveAsRegular,
+                        onCheckedChange = { saveAsRegular = it },
+                        colors = CheckboxDefaults.colors(checkedColor = colorScheme.primary)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Save as Regular Route Customer", fontSize = 12.5.sp)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val cash = cashText.toDoubleOrNull() ?: bill
+                    onSave(name, milkType, liters, rate, cash, saveAsRegular)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("SAVE & DELIVER", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = colorScheme.surface
+    )
+}
+

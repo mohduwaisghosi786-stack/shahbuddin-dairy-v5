@@ -126,4 +126,13 @@ class DairyRepository(
     }
 
     fun getAllPbsSettingsFlow(): Flow<List<AppSettingEntity>> = settingDao.getAllPbsSettingsFlow()
+
+    suspend fun updateCustomerRouteOrders(orderList: List<Pair<Long, Int>>) {
+        transactionMutex.withLock {
+            for ((cId, order) in orderList) {
+                customerDao.updateRouteOrder(cId, order)
+            }
+        }
+    }
 }
+

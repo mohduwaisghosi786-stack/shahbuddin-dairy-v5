@@ -5,7 +5,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.shahbuddindairy.app.DairyApplication
@@ -123,48 +125,56 @@ object DailyTaskNotificationManager {
                 val prevCustomerId = if (customerIndex > 0) customers[customerIndex - 1].id else currentCustomer.id
                 val nextCustomerId = if (customerIndex < customers.size - 1) customers[customerIndex + 1].id else currentCustomer.id
 
+                // Unique request code base using customer ID
+                val baseCode = (currentCustomer.id % 10000).toInt() * 10
+
                 // Action Deliver
                 val deliverIntent = Intent(context, DailyTaskNotificationReceiver::class.java).apply {
                     action = DailyTaskNotificationReceiver.ACTION_DELIVER
+                    data = Uri.parse("dairy://customer/${currentCustomer.id}/deliver")
                     putExtra(DailyTaskNotificationReceiver.EXTRA_CUSTOMER_ID, currentCustomer.id)
                 }
                 val deliverPendingIntent = PendingIntent.getBroadcast(
-                    context, 101, deliverIntent,
+                    context, baseCode + 1, deliverIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
                 // Action Naga
                 val nagaIntent = Intent(context, DailyTaskNotificationReceiver::class.java).apply {
                     action = DailyTaskNotificationReceiver.ACTION_NAGA
+                    data = Uri.parse("dairy://customer/${currentCustomer.id}/naga")
                     putExtra(DailyTaskNotificationReceiver.EXTRA_CUSTOMER_ID, currentCustomer.id)
                 }
                 val nagaPendingIntent = PendingIntent.getBroadcast(
-                    context, 102, nagaIntent,
+                    context, baseCode + 2, nagaIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
                 // Action Prev
                 val prevIntent = Intent(context, DailyTaskNotificationReceiver::class.java).apply {
                     action = DailyTaskNotificationReceiver.ACTION_PREV
+                    data = Uri.parse("dairy://customer/$prevCustomerId/prev")
                     putExtra(DailyTaskNotificationReceiver.EXTRA_CUSTOMER_ID, prevCustomerId)
                 }
                 val prevPendingIntent = PendingIntent.getBroadcast(
-                    context, 103, prevIntent,
+                    context, baseCode + 3, prevIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
                 // Action Next
                 val nextIntent = Intent(context, DailyTaskNotificationReceiver::class.java).apply {
                     action = DailyTaskNotificationReceiver.ACTION_NEXT
+                    data = Uri.parse("dairy://customer/$nextCustomerId/next")
                     putExtra(DailyTaskNotificationReceiver.EXTRA_CUSTOMER_ID, nextCustomerId)
                 }
                 val nextPendingIntent = PendingIntent.getBroadcast(
-                    context, 104, nextIntent,
+                    context, baseCode + 4, nextIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                val title = "#${currentCustomer.id} ${currentCustomer.name} (${currentCustomer.mohalla})"
-                val subText = "Route ${customerIndex + 1}/${customers.size} • Done: $completedCount"
+                val title = "Route #${customerIndex + 1}: ${currentCustomer.name} (ID: ${currentCustomer.id})"
+                val subText = "${currentCustomer.mohalla} • Route ${customerIndex + 1}/${customers.size} • Done: $completedCount"
+
 
                 val contentText = if (privacyMode == "private") {
                     "%.2f L ${currentCustomer.milkType} • Tap to deliver".format(Locale.US, currentCustomer.defaultLiters)

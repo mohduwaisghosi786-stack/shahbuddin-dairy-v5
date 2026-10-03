@@ -30,6 +30,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AltRoute
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Calculate
@@ -39,18 +41,25 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Today
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
+import com.shahbuddindairy.app.data.model.CustomerNoteEntity
+import com.shahbuddindairy.app.data.model.RouteEntity
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 
@@ -124,11 +133,12 @@ fun DailyTaskScreen(
     var showRouteReorderDialog by remember { mutableStateOf(false) }
     var showCalculatorDialog by remember { mutableStateOf(false) }
     var showQuickCustomerDialog by remember { mutableStateOf(false) }
+    var customerForNotes by remember { mutableStateOf<Pair<Long, String>?>(null) }
+    var showRouteManagerDialog by remember { mutableStateOf(false) }
 
     // External PBS Pending Amount Edit Dialog State
     var editingPbsCustomer by remember { mutableStateOf<Pair<Long, Double>?>(null) }
     var editingPbsText by remember { mutableStateOf("") }
-
 
     // Synchronize ongoing delivery route notification
     LaunchedEffect(uiState.selectedDate, uiState.completedCount) {
@@ -164,11 +174,53 @@ fun DailyTaskScreen(
             }
         )
 
+        // MOTIVATION / DAILY FACTUAL PROGRESS BANNER
+        if (uiState.showMotivation && uiState.motivationText.isNotBlank()) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TrendingUp,
+                        contentDescription = null,
+                        tint = colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = uiState.motivationText,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colorScheme.onSecondaryContainer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = { viewModel.toggleMotivation(false) },
+                        modifier = Modifier.size(18.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss",
+                            tint = colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // METRICS DASHBOARD STRIP (With Total Route Progress)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatCard(
@@ -196,6 +248,117 @@ fun DailyTaskScreen(
                 icon = Icons.Default.Check,
                 modifier = Modifier.weight(1f)
             )
+        }
+
+        // ROUTE SELECTOR CHIPS & ROUTE MANAGER ROW
+        if (uiState.availableRoutes.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Route Manager Button
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainer,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                    modifier = Modifier.clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        showRouteManagerDialog = true
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AltRoute,
+                            contentDescription = "Manage Routes",
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Routes",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+                }
+
+                // All Routes Chip
+                val isAllSel = uiState.selectedRouteId == "ALL"
+                FilterChip(
+                    selected = isAllSel,
+                    onClick = { viewModel.selectRouteFilter("ALL") },
+                    label = { Text("All Routes (${uiState.customerCards.size})", fontSize = 11.sp, fontWeight = if (isAllSel) FontWeight.Bold else FontWeight.Normal) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = colorScheme.primary,
+                        selectedLabelColor = colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                uiState.availableRoutes.forEach { route ->
+                    val isSel = uiState.selectedRouteId == route.id
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { viewModel.selectRouteFilter(route.id) },
+                        label = { Text(route.name, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = colorScheme.primary,
+                            selectedLabelColor = colorScheme.onPrimary
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            }
+        }
+
+        // LIVE ROUTE PROGRESS BAR
+        uiState.routeProgress?.let { prog ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = colorScheme.surfaceContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${prog.routeName}: ${prog.deliveredCount}/${prog.totalCustomers} Delivered",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onSurface
+                        )
+                        Text(
+                            text = "${prog.percentComplete}% (${prog.pendingCount} Pending)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    LinearProgressIndicator(
+                        progress = { (prog.percentComplete / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = colorScheme.primary,
+                        trackColor = colorScheme.surfaceContainerHigh
+                    )
+                }
+            }
         }
 
         // VIEW MODE TOGGLE & SEARCH ROW
@@ -405,6 +568,13 @@ fun DailyTaskScreen(
                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${currentItem.customer.phone}"))
                             context.startActivity(intent)
                         }
+                    },
+                    onNotesClicked = {
+                        customerForNotes = Pair(currentItem.customer.id, currentItem.customer.name)
+                    },
+                    onOneTapPayment = { amt ->
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.recordOneTapPayment(currentItem.customer.id, amt)
                     }
                 )
             }
@@ -456,6 +626,13 @@ fun DailyTaskScreen(
                                 val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${cardItem.customer.phone}"))
                                 context.startActivity(intent)
                             }
+                        },
+                        onNotesClicked = {
+                            customerForNotes = Pair(cardItem.customer.id, cardItem.customer.name)
+                        },
+                        onOneTapPayment = { amt ->
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.recordOneTapPayment(cardItem.customer.id, amt)
                         }
                     )
                 }
@@ -598,7 +775,28 @@ fun DailyTaskScreen(
             }
         )
     }
+
+    // CUSTOMER NOTES DIALOG
+    customerForNotes?.let { (cId, cName) ->
+        CustomerNotesDialog(
+            customerId = cId,
+            customerName = cName,
+            viewModel = viewModel,
+            onDismiss = { customerForNotes = null }
+        )
+    }
+
+    // ROUTE MANAGER DIALOG
+    if (showRouteManagerDialog) {
+        RouteManagerDialog(
+            availableRoutes = uiState.availableRoutes,
+            allCustomers = uiState.allActiveCustomers,
+            viewModel = viewModel,
+            onDismiss = { showRouteManagerDialog = false }
+        )
+    }
 }
+
 
 
 @Composable
@@ -734,7 +932,9 @@ fun DailyCustomerCard(
     onKhataClicked: () -> Unit,
     onPbsEditClicked: () -> Unit,
     onNextClicked: () -> Unit,
-    onCallClicked: () -> Unit
+    onCallClicked: () -> Unit,
+    onNotesClicked: () -> Unit = {},
+    onOneTapPayment: (Double) -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
     var isExpanded by remember { mutableStateOf(false) }
@@ -815,7 +1015,7 @@ fun DailyCustomerCard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "ID: #${item.customer.id} • ${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}",
+                            text = "ID: #${item.customer.id} • ${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}${if (item.routeName.isNotBlank()) " • 📍 ${item.routeName}" else ""}",
                             fontSize = 11.5.sp,
                             color = colorScheme.onSurfaceVariant
                         )
@@ -835,7 +1035,35 @@ fun DailyCustomerCard(
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // PINNED CUSTOMER NOTE BADGE
+            if (item.pinnedNote != null) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFFFEF3C7),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNotesClicked() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("📌", fontSize = 11.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = item.pinnedNote,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF92400E),
+                            maxLines = 1
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
 
             // 2. MILK QUANTITY & BILL ROW
             Row(
@@ -1058,6 +1286,66 @@ fun DailyCustomerCard(
                 }
             }
 
+            // ONE-TAP QUICK PAYMENT RECONCILIATION ROW
+            if (item.prevDue > 0) {
+                Spacer(modifier = Modifier.height(5.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "⚡ Quick:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.primary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.primaryContainer,
+                        modifier = Modifier.clickable { onOneTapPayment(item.prevDue) }
+                    ) {
+                        Text(
+                            text = "Pay Full ₹%.0f".format(item.prevDue),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                    if (item.prevDue >= 100.0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable { onOneTapPayment(100.0) }
+                        ) {
+                            Text(
+                                text = "Pay ₹100",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    if (item.prevDue >= 500.0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable { onOneTapPayment(500.0) }
+                        ) {
+                            Text(
+                                text = "Pay ₹500",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // 5. NET DUE / ADVANCE BANNER
             Spacer(modifier = Modifier.height(4.dp))
             Row(
@@ -1189,6 +1477,30 @@ fun DailyCustomerCard(
                     )
                 }
 
+                // Customer Notes Button
+                OutlinedButton(
+                    onClick = onNotesClicked,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.EditNote,
+                        contentDescription = "Notes",
+                        tint = if (item.notesCount > 0) colorScheme.primary else colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    if (item.notesCount > 0) {
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = "${item.notesCount}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+                }
+
                 // Naga / Skip Button
                 OutlinedButton(
                     onClick = onNagaClicked,
@@ -1273,7 +1585,9 @@ fun DailyTaskRunnerCard(
     onNagaClicked: () -> Unit,
     onKhataClicked: () -> Unit,
     onPbsEditClicked: () -> Unit,
-    onCallClicked: () -> Unit
+    onCallClicked: () -> Unit,
+    onNotesClicked: () -> Unit = {},
+    onOneTapPayment: (Double) -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -1342,7 +1656,7 @@ fun DailyTaskRunnerCard(
                         color = colorScheme.onSurface
                     )
                     Text(
-                        text = "ID: #${item.customer.id} • ${item.customer.mohalla} ${if (item.customer.landmark.isNotBlank()) "• ${item.customer.landmark}" else ""}",
+                        text = "ID: #${item.customer.id} • ${item.customer.mohalla} ${if (item.customer.landmark.isNotBlank()) "• ${item.customer.landmark}" else ""}${if (item.routeName.isNotBlank()) " • 📍 ${item.routeName}" else ""}",
                         fontSize = 13.sp,
                         color = colorScheme.onSurfaceVariant
                     )
@@ -1354,6 +1668,33 @@ fun DailyTaskRunnerCard(
                 if (item.customer.phone.isNotBlank()) {
                     IconButton(onClick = onCallClicked) {
                         Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary)
+                    }
+                }
+            }
+
+            // PINNED CUSTOMER NOTE BADGE (Runner Mode)
+            if (item.pinnedNote != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF3C7),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNotesClicked() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("📌", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = item.pinnedNote,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF92400E)
+                        )
                     }
                 }
             }
@@ -1546,6 +1887,94 @@ fun DailyTaskRunnerCard(
                         tint = colorScheme.primary,
                         modifier = Modifier.size(12.dp)
                     )
+                }
+            }
+
+            // ONE-TAP QUICK PAYMENT RECONCILIATION ROW (Runner Mode)
+            if (item.prevDue > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "⚡ Quick Pay:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.primary
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.primaryContainer,
+                        modifier = Modifier.clickable { onOneTapPayment(item.prevDue) }
+                    ) {
+                        Text(
+                            text = "Pay Full ₹%.0f".format(item.prevDue),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    if (item.prevDue >= 100.0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable { onOneTapPayment(100.0) }
+                        ) {
+                            Text(
+                                text = "Pay ₹100",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    if (item.prevDue >= 500.0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable { onOneTapPayment(500.0) }
+                        ) {
+                            Text(
+                                text = "Pay ₹500",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // KHATA & NOTES QUICK ACCESS BUTTONS (Runner Mode)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onKhataClicked,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp)
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Khata", fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = onNotesClicked,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp)
+                ) {
+                    Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (item.notesCount > 0) "Notes (${item.notesCount})" else "Notes", fontSize = 12.sp)
                 }
             }
 
@@ -2061,4 +2490,415 @@ fun QuickCustomerDialog(
         containerColor = colorScheme.surface
     )
 }
+
+@Composable
+fun CustomerNotesDialog(
+    customerId: Long,
+    customerName: String,
+    viewModel: DailyTaskViewModel,
+    onDismiss: () -> Unit
+) {
+    val notesFlow = remember(customerId) { viewModel.getNotesForCustomer(customerId) }
+    val notes by notesFlow.collectAsState(initial = emptyList())
+    var noteContent by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("General") }
+    var isPinned by remember { mutableStateOf(false) }
+    val categories = listOf("General", "Delivery", "Payment", "Timing")
+    val colorScheme = MaterialTheme.colorScheme
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = "Customer Notes (टिप्पणियाँ)",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+                Text(
+                    text = "#$customerId • $customerName",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Add note input
+                OutlinedTextField(
+                    value = noteContent,
+                    onValueChange = { noteContent = it },
+                    placeholder = { Text("Add note (e.g. सुबह 6 बजे, gate से देना है...)", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colorScheme.surfaceContainer,
+                        unfocusedContainerColor = colorScheme.surfaceContainer
+                    )
+                )
+
+                // Category selection chips
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    categories.forEach { cat ->
+                        FilterChip(
+                            selected = selectedCategory == cat,
+                            onClick = { selectedCategory = cat },
+                            label = { Text(cat, fontSize = 11.sp) },
+                            shape = RoundedCornerShape(6.dp)
+                        )
+                    }
+                }
+
+                // Pin toggle & Add button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { isPinned = !isPinned }
+                    ) {
+                        Checkbox(
+                            checked = isPinned,
+                            onCheckedChange = { isPinned = it }
+                        )
+                        Text("Pin note (पिन करें)", fontSize = 11.5.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (noteContent.isNotBlank()) {
+                                viewModel.saveCustomerNote(
+                                    customerId = customerId,
+                                    content = noteContent,
+                                    category = selectedCategory,
+                                    isPinned = isPinned
+                                )
+                                noteContent = ""
+                                isPinned = false
+                            }
+                        },
+                        enabled = noteContent.isNotBlank(),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("+ Add", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // List of existing notes
+                if (notes.isEmpty()) {
+                    Text(
+                        text = "No notes recorded for this customer.",
+                        fontSize = 12.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    notes.forEach { note ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (note.isPinned) Color(0xFFFEF3C7) else colorScheme.surfaceContainer,
+                            border = androidx.compose.foundation.BorderStroke(
+                                0.5.dp,
+                                if (note.isPinned) Color(0xFFF59E0B) else colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (note.isPinned) {
+                                            Text("📌 ", fontSize = 11.sp)
+                                        }
+                                        Text(
+                                            text = note.category,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (note.isPinned) Color(0xFFB45309) else colorScheme.primary
+                                        )
+                                    }
+                                    Text(
+                                        text = note.content,
+                                        fontSize = 12.5.sp,
+                                        color = if (note.isPinned) Color(0xFF78350F) else colorScheme.onSurface
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { viewModel.togglePinCustomerNote(note) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PushPin,
+                                            contentDescription = "Pin",
+                                            tint = if (note.isPinned) Color(0xFFD97706) else colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.deleteCustomerNote(note.id) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = colorScheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done (बंद करें)")
+            }
+        }
+    )
+}
+
+@Composable
+fun RouteManagerDialog(
+    availableRoutes: List<RouteEntity>,
+    allCustomers: List<CustomerEntity>,
+    viewModel: DailyTaskViewModel,
+    onDismiss: () -> Unit
+) {
+    var showCreateRoute by remember { mutableStateOf(false) }
+    var newRouteName by remember { mutableStateOf("") }
+    var newRouteDesc by remember { mutableStateOf("") }
+    var selectedCustomerForAssign by remember { mutableStateOf<CustomerEntity?>(null) }
+    var targetRouteId by remember { mutableStateOf("default") }
+    val colorScheme = MaterialTheme.colorScheme
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Route Manager (मार्ग व्यवस्थापक)",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = colorScheme.onSurface
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Manage delivery routes, track progress, and assign customers to routes.",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+
+                // List of routes
+                availableRoutes.forEach { route ->
+                    val custCount = allCustomers.count { it.routeId == route.id }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceContainer,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = route.name,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "$custCount Customers" + if (route.description.isNotBlank()) " • ${route.description}" else "",
+                                    fontSize = 11.sp,
+                                    color = colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (route.id != "default") {
+                                IconButton(
+                                    onClick = { viewModel.deleteRoute(route.id) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete Route",
+                                        tint = colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Create new route section
+                if (showCreateRoute) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceContainerHigh),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("New Route", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            OutlinedTextField(
+                                value = newRouteName,
+                                onValueChange = { newRouteName = it },
+                                placeholder = { Text("Route name (e.g. Gulab Nagar)", fontSize = 11.5.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = newRouteDesc,
+                                onValueChange = { newRouteDesc = it },
+                                placeholder = { Text("Description / notes (optional)", fontSize = 11.5.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(onClick = { showCreateRoute = false }) { Text("Cancel") }
+                                Button(
+                                    onClick = {
+                                        if (newRouteName.isNotBlank()) {
+                                            val rId = "route_${System.currentTimeMillis()}"
+                                            viewModel.saveRoute(
+                                                RouteEntity(
+                                                    id = rId,
+                                                    name = newRouteName.trim(),
+                                                    description = newRouteDesc.trim(),
+                                                    sortOrder = availableRoutes.size
+                                                )
+                                            )
+                                            newRouteName = ""
+                                            newRouteDesc = ""
+                                            showCreateRoute = false
+                                        }
+                                    },
+                                    enabled = newRouteName.isNotBlank()
+                                ) {
+                                    Text("Create Route")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { showCreateRoute = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("+ Add New Route", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // Assign customer to route
+                Text("Assign Customer to Route (ग्राहक जोड़ें)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                var custSearch by remember { mutableStateOf("") }
+                OutlinedTextField(
+                    value = custSearch,
+                    onValueChange = { custSearch = it },
+                    placeholder = { Text("Search customer to assign...", fontSize = 11.5.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                val matchedCustomers = if (custSearch.isBlank()) emptyList() else
+                    allCustomers.filter { it.name.contains(custSearch, ignoreCase = true) || it.id.toString() == custSearch }.take(5)
+
+                matchedCustomers.forEach { cust ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedCustomerForAssign = cust }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("#${cust.id} ${cust.name}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        val currRouteName = availableRoutes.find { it.id == cust.routeId }?.name ?: "Main Route"
+                        Text(currRouteName, fontSize = 11.sp, color = colorScheme.primary)
+                    }
+                }
+
+                selectedCustomerForAssign?.let { cust ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.primaryContainer.copy(alpha = 0.4f),
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text("Move #${cust.id} ${cust.name} to:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                availableRoutes.forEach { r ->
+                                    FilterChip(
+                                        selected = targetRouteId == r.id,
+                                        onClick = { targetRouteId = r.id },
+                                        label = { Text(r.name, fontSize = 10.5.sp) }
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = {
+                                    viewModel.assignCustomerToRoute(cust.id, targetRouteId)
+                                    selectedCustomerForAssign = null
+                                    custSearch = ""
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text("Assign to Route", fontSize = 11.5.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
 

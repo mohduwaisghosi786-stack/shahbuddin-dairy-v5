@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["isActive"]),
         Index(value = ["routeOrder"]),
+        Index(value = ["routeId"]),
         Index(value = ["name"])
     ]
 )
@@ -29,6 +30,7 @@ data class CustomerEntity(
     val isActive: Int = 1,
     val isArchived: Int = 0,
     val routeOrder: Int = 0,
+    val routeId: String = "default",
     val portionsJson: String = "[]",
     val createdAt: String = ""
 )

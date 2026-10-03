@@ -101,46 +101,121 @@ fun ReportsScreen(
     ) {
         // TOP APP HEADER
         AppTopHeader(
-            title = "Daily Report",
-            subtitle = "दैनिक विश्लेषण • ${CalculationEngine.formatDateDisplay(uiState.selectedDate)}"
+            title = "Reports & Analytics",
+            subtitle = "${uiState.periodLabel} • ${CalculationEngine.formatDateDisplay(uiState.selectedDate)}"
         )
 
-        // DATE SELECTOR
-        Surface(
-            color = colorScheme.surface,
-            tonalElevation = 1.dp,
-            modifier = Modifier.fillMaxWidth()
+        // PERIOD SELECTOR (DAILY / WEEKLY / MONTHLY)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
+            FilterChip(
+                selected = uiState.selectedPeriod == ReportPeriod.DAILY,
+                onClick = { viewModel.onPeriodSelected(ReportPeriod.DAILY) },
+                label = { Text("Daily (दैनिक)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colorScheme.primary,
+                    selectedLabelColor = colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = uiState.selectedPeriod == ReportPeriod.WEEKLY,
+                onClick = { viewModel.onPeriodSelected(ReportPeriod.WEEKLY) },
+                label = { Text("7 Days (साप्ताहिक)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colorScheme.primary,
+                    selectedLabelColor = colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = uiState.selectedPeriod == ReportPeriod.MONTHLY,
+                onClick = { viewModel.onPeriodSelected(ReportPeriod.MONTHLY) },
+                label = { Text("30 Days (मासिक)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = colorScheme.primary,
+                    selectedLabelColor = colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // DATE SELECTOR (ONLY SHOWN FOR DAILY)
+        if (uiState.selectedPeriod == ReportPeriod.DAILY) {
+            Surface(
+                color = colorScheme.surface,
+                tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { viewModel.onPrevDay() }, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.ChevronLeft, contentDescription = "Prev Day", tint = colorScheme.primary)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { viewModel.onDateSelected(CalculationEngine.todayStr()) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Today, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = CalculationEngine.formatDateDisplay(uiState.selectedDate),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onSurface
+                        )
+                    }
+
+                    IconButton(onClick = { viewModel.onNextDay() }, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.ChevronRight, contentDescription = "Next Day", tint = colorScheme.primary)
+                    }
+                }
+            }
+        }
+
+        // FACTUAL TREND BANNER (IF AVAILABLE)
+        if (uiState.trendVsYesterdayPercent != null) {
+            val trend = uiState.trendVsYesterdayPercent!!
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (trend >= 0) colorScheme.primaryContainer.copy(alpha = 0.6f) else StatusAmber.copy(alpha = 0.15f)
+                ),
+                shape = RoundedCornerShape(8.dp)
             ) {
-                IconButton(onClick = { viewModel.onPrevDay() }, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Default.ChevronLeft, contentDescription = "Prev Day", tint = colorScheme.primary)
-                }
-
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { viewModel.onDateSelected(CalculationEngine.todayStr()) }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Today, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Text(
+                        text = if (trend >= 0) "📈" else "📉",
+                        fontSize = 13.sp
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = CalculationEngine.formatDateDisplay(uiState.selectedDate),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = "कल की तुलना में ${if (trend >= 0) "+$trend%" else "$trend%"} दूध वितरण (${CalculationEngine.formatLiters(uiState.totalSoldLiters)})",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = colorScheme.onSurface
                     )
-                }
-
-                IconButton(onClick = { viewModel.onNextDay() }, modifier = Modifier.size(34.dp)) {
-                    Icon(Icons.Default.ChevronRight, contentDescription = "Next Day", tint = colorScheme.primary)
                 }
             }
         }
@@ -149,7 +224,7 @@ fun ReportsScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatCard(
@@ -163,10 +238,10 @@ fun ReportsScreen(
             StatCard(
                 label = "Total Bill",
                 value = CalculationEngine.formatMoney(uiState.totalBill),
-                subValue = "Cash: ${CalculationEngine.formatMoney(uiState.totalCashCollected)}",
+                subValue = "Cash: ${CalculationEngine.formatMoney(uiState.totalCashCollected)} | Online: ${CalculationEngine.formatMoney(uiState.totalOnlineCollected)}",
                 valueColor = colorScheme.primary,
                 icon = Icons.Default.Payments,
-                modifier = Modifier.weight(1.1f)
+                modifier = Modifier.weight(1.2f)
             )
             StatCard(
                 label = "Pending Due",

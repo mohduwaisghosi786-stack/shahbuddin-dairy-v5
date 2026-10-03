@@ -4,10 +4,14 @@ import com.shahbuddindairy.app.data.dao.AppSettingDao
 import com.shahbuddindairy.app.data.dao.CustomerDao
 import com.shahbuddindairy.app.data.dao.DeliveryDao
 import com.shahbuddindairy.app.data.dao.PaymentDao
+import com.shahbuddindairy.app.data.dao.CustomerNoteDao
+import com.shahbuddindairy.app.data.dao.RouteDao
 import com.shahbuddindairy.app.data.model.AppSettingEntity
 import com.shahbuddindairy.app.data.model.CustomerEntity
+import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import com.shahbuddindairy.app.data.model.DeliveryEntity
 import com.shahbuddindairy.app.data.model.PaymentEntity
+import com.shahbuddindairy.app.data.model.RouteEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -19,7 +23,9 @@ class DairyRepository(
     private val customerDao: CustomerDao,
     private val deliveryDao: DeliveryDao,
     private val paymentDao: PaymentDao,
-    private val settingDao: AppSettingDao
+    private val settingDao: AppSettingDao,
+    private val customerNoteDao: CustomerNoteDao,
+    private val routeDao: RouteDao
 ) {
     private val transactionMutex = Mutex()
 
@@ -132,6 +138,59 @@ class DairyRepository(
             for ((cId, order) in orderList) {
                 customerDao.updateRouteOrder(cId, order)
             }
+        }
+    }
+
+    // Customer Notes
+    fun getNotesForCustomer(customerId: Long): Flow<List<CustomerNoteEntity>> =
+        customerNoteDao.getNotesForCustomer(customerId)
+
+    suspend fun getNotesForCustomerDirect(customerId: Long): List<CustomerNoteEntity> =
+        customerNoteDao.getNotesForCustomerDirect(customerId)
+
+    fun getAllPinnedNotes(): Flow<List<CustomerNoteEntity>> =
+        customerNoteDao.getAllPinnedNotes()
+
+    suspend fun getAllPinnedNotesDirect(): List<CustomerNoteEntity> =
+        customerNoteDao.getAllPinnedNotesDirect()
+
+    suspend fun getAllNotesDirect(): List<CustomerNoteEntity> =
+        customerNoteDao.getAllNotesDirect()
+
+    suspend fun saveNote(note: CustomerNoteEntity) {
+        transactionMutex.withLock {
+            customerNoteDao.insertNote(note)
+        }
+    }
+
+    suspend fun deleteNote(noteId: String) {
+        transactionMutex.withLock {
+            customerNoteDao.deleteNote(noteId)
+        }
+    }
+
+    // Route Management
+    fun getAllRoutes(): Flow<List<RouteEntity>> = routeDao.getAllRoutes()
+
+    suspend fun getAllRoutesDirect(): List<RouteEntity> = routeDao.getAllRoutesDirect()
+
+    suspend fun getRouteByIdDirect(id: String): RouteEntity? = routeDao.getRouteByIdDirect(id)
+
+    suspend fun saveRoute(route: RouteEntity) {
+        transactionMutex.withLock {
+            routeDao.insertRoute(route)
+        }
+    }
+
+    suspend fun deleteRoute(routeId: String) {
+        transactionMutex.withLock {
+            routeDao.deleteRoute(routeId)
+        }
+    }
+
+    suspend fun assignCustomerToRoute(customerId: Long, routeId: String) {
+        transactionMutex.withLock {
+            customerDao.updateCustomerRoute(customerId, routeId)
         }
     }
 }

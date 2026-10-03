@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Info
@@ -490,7 +492,79 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 }
             }
 
-            // 4. DAIRY SETTINGS CARD
+            // 5. GOOGLE DRIVE & CLOUD BACKUP CARD (OPTIONAL)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudUpload, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Google Drive & Cloud (वैकल्पिक)",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colorScheme.primaryContainer)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Optional", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "स्थानीय डिवाइस डेटा ही मुख्य स्रोत (Source of Truth) है। आप बैकअप पैकेज को सुरक्षित रूप से Google Drive, Gmail या अन्य क्लाउड स्टोरेज पर भेज सकते हैं।",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = { viewModel.shareBackupToCloud(context) },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                    ) {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("SAVE / UPLOAD TO GOOGLE DRIVE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedButton(
+                        onClick = { filePickerLauncher.launch("*/*") },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp)
+                    ) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("RESTORE FROM DRIVE / FILES", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // 6. DAIRY SETTINGS CARD
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -569,7 +643,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Shahbuddin Dairy V6",
+                    text = "Shahbuddin Dairy V7.5",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = colorScheme.primary
@@ -662,6 +736,8 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         Text("• Customers: ${stats.customers}", fontSize = 12.5.sp)
                         Text("• Milk Deliveries: ${stats.deliveries} (%.2f L)".format(stats.totalLiters), fontSize = 12.5.sp)
                         Text("• Payments: ${stats.payments} (Total: ₹%,d)".format(stats.totalPaid.toLong()), fontSize = 12.5.sp)
+                        if (stats.routesCount > 0) Text("• Routes: ${stats.routesCount}", fontSize = 12.5.sp)
+                        if (stats.notesCount > 0) Text("• Customer Notes: ${stats.notesCount}", fontSize = 12.5.sp)
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             "An automatic safety snapshot of current data will be saved before restoring.",

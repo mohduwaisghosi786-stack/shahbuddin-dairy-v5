@@ -14,8 +14,10 @@ import com.google.gson.JsonObject
 import com.shahbuddindairy.app.data.db.AppDatabase
 import com.shahbuddindairy.app.data.model.AppSettingEntity
 import com.shahbuddindairy.app.data.model.CustomerEntity
+import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import com.shahbuddindairy.app.data.model.DeliveryEntity
 import com.shahbuddindairy.app.data.model.PaymentEntity
+import com.shahbuddindairy.app.data.model.RouteEntity
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
@@ -33,6 +35,8 @@ object BackupManager {
         val deliveries: Int,
         val payments: Int,
         val onlinePaymentsCount: Int,
+        val routesCount: Int = 0,
+        val notesCount: Int = 0,
         val totalLiters: Double,
         val totalBill: Double,
         val totalPaid: Double,
@@ -46,6 +50,8 @@ object BackupManager {
         val customers: List<CustomerEntity> = emptyList(),
         val deliveries: List<DeliveryEntity> = emptyList(),
         val payments: List<PaymentEntity> = emptyList(),
+        val routes: List<RouteEntity> = emptyList(),
+        val customerNotes: List<CustomerNoteEntity> = emptyList(),
         val settings: Map<String, String> = emptyMap()
     )
 
@@ -82,6 +88,8 @@ object BackupManager {
             val customers = customerDao.getAllCustomersDirect()
             val deliveries = deliveryDao.getAllDeliveriesDirect()
             val payments = paymentDao.getAllPaymentsDirect()
+            val routes = database.routeDao().getAllRoutesDirect()
+            val notes = database.customerNoteDao().getAllNotesDirect()
             val settingsList = settingDao.getAllSettings()
             val settingsMap = settingsList.associate { it.key to it.value }
 
@@ -118,6 +126,8 @@ object BackupManager {
                 deliveries = deliveries.size,
                 payments = payments.size,
                 onlinePaymentsCount = onlinePaymentsCount,
+                routesCount = routes.size,
+                notesCount = notes.size,
                 totalLiters = (totalLit * 100.0).toInt() / 100.0,
                 totalBill = (totalBill * 100.0).toInt() / 100.0,
                 totalPaid = (totalPaid * 100.0).toInt() / 100.0,
@@ -126,15 +136,17 @@ object BackupManager {
 
             val payloadMap = linkedMapOf<String, Any>(
                 "app" to "ShahbuddinDairy",
-                "app_version" to "5.1.0",
-                "backup_format" to 2,
-                "schema" to 5,
+                "app_version" to "7.5.0",
+                "backup_format" to 3,
+                "schema" to 6,
                 "created_at" to isoDate,
                 "manifest" to mapOf(
                     "customers" to customers.size,
                     "deliveries" to deliveries.size,
                     "payments" to payments.size,
                     "online_payments" to onlinePaymentsCount,
+                    "routes" to routes.size,
+                    "notes" to notes.size,
                     "total_liters" to stats.totalLiters,
                     "total_bill" to stats.totalBill,
                     "total_paid" to stats.totalPaid
@@ -142,7 +154,9 @@ object BackupManager {
                 "database" to mapOf(
                     "customers" to customers,
                     "deliveries" to deliveries,
-                    "payments" to payments
+                    "payments" to payments,
+                    "routes" to routes,
+                    "customer_notes" to notes
                 ),
                 "settings" to settingsMap
             )
@@ -260,6 +274,7 @@ object BackupManager {
                         frequencyAnchorDate = c.get("frequency_anchor_date")?.asString ?: "",
                         isActive = if (c.get("is_active")?.asInt == 0) 0 else 1,
                         isArchived = if (c.get("is_archived")?.asInt == 1) 1 else 0,
+                        routeId = c.get("route_id")?.asString ?: "default",
                         routeOrder = c.get("route_order")?.asInt ?: (i + 1),
                         portionsJson = c.get("portions_json")?.asString ?: "[]",
                         createdAt = c.get("created_at")?.asString ?: ""
@@ -352,12 +367,53 @@ object BackupManager {
                 }
             }
 
+            val routes = mutableListOf<RouteEntity>()
+            if (dbObj.has("routes") && !dbObj.get("routes").isJsonNull) {
+                val routeArray = dbObj.getAsJsonArray("routes")
+                for (i in 0 until routeArray.size()) {
+                    val r = routeArray.get(i).asJsonObject
+                    routes.add(
+                        RouteEntity(
+                            id = r.get("id")?.asString ?: "route_$i",
+                            name = r.get("name")?.asString ?: "Route $i",
+                            description = r.get("description")?.asString ?: "",
+                            colorHex = r.get("color_hex")?.asString ?: "#16A34A",
+                            sortOrder = r.get("sort_order")?.asInt ?: i,
+                            isActive = r.get("is_active")?.asBoolean ?: true,
+                            createdAt = r.get("created_at")?.asString ?: ""
+                        )
+                    )
+                }
+            }
+
+            val customerNotes = mutableListOf<CustomerNoteEntity>()
+            if (dbObj.has("customer_notes") && !dbObj.get("customer_notes").isJsonNull) {
+                val notesArray = dbObj.getAsJsonArray("customer_notes")
+                for (i in 0 until notesArray.size()) {
+                    val n = notesArray.get(i).asJsonObject
+                    val cid = n.get("customer_id")?.asLong ?: continue
+                    customerNotes.add(
+                        CustomerNoteEntity(
+                            id = n.get("id")?.asString ?: "note_$i",
+                            customerId = cid,
+                            content = n.get("content")?.asString ?: "",
+                            category = n.get("category")?.asString ?: "General",
+                            isPinned = n.get("is_pinned")?.asBoolean ?: false,
+                            createdAt = n.get("created_at")?.asString ?: "",
+                            updatedAt = n.get("updated_at")?.asString ?: ""
+                        )
+                    )
+                }
+            }
+
             val createdAt = root.get("created_at")?.asString ?: ""
             val stats = BackupStats(
                 customers = customers.size,
                 deliveries = deliveries.size,
                 payments = payments.size,
                 onlinePaymentsCount = onlineCount,
+                routesCount = routes.size,
+                notesCount = customerNotes.size,
                 totalLiters = (totalLiters * 100.0).toInt() / 100.0,
                 totalBill = (totalBill * 100.0).toInt() / 100.0,
                 totalPaid = (totalPaid * 100.0).toInt() / 100.0,
@@ -379,6 +435,8 @@ object BackupManager {
                 customers = customers,
                 deliveries = deliveries,
                 payments = payments,
+                routes = routes,
+                customerNotes = customerNotes,
                 settings = settings
             )
         } catch (e: Exception) {
@@ -401,6 +459,8 @@ object BackupManager {
             val currCust = database.customerDao().getAllCustomersDirect()
             val currDeliv = database.deliveryDao().getAllDeliveriesDirect()
             val currPay = database.paymentDao().getAllPaymentsDirect()
+            val currRoutes = database.routeDao().getAllRoutesDirect()
+            val currNotes = database.customerNoteDao().getAllNotesDirect()
             val currSettings = database.appSettingDao().getAllSettings().associate { it.key to it.value }
 
             val safetyPayload = mapOf(
@@ -409,7 +469,9 @@ object BackupManager {
                 "database" to mapOf(
                     "customers" to currCust,
                     "deliveries" to currDeliv,
-                    "payments" to currPay
+                    "payments" to currPay,
+                    "routes" to currRoutes,
+                    "customer_notes" to currNotes
                 ),
                 "settings" to currSettings
             )
@@ -427,6 +489,12 @@ object BackupManager {
                 database.customerDao().insertCustomers(validationResult.customers)
                 database.deliveryDao().insertDeliveries(validationResult.deliveries)
                 database.paymentDao().insertPayments(validationResult.payments)
+                if (validationResult.routes.isNotEmpty()) {
+                    database.routeDao().insertRoutes(validationResult.routes)
+                }
+                if (validationResult.customerNotes.isNotEmpty()) {
+                    database.customerNoteDao().insertNotes(validationResult.customerNotes)
+                }
                 for ((k, v) in validationResult.settings) {
                     database.appSettingDao().setSetting(AppSettingEntity(k, v))
                 }
@@ -470,6 +538,12 @@ object BackupManager {
                 database.customerDao().insertCustomers(v.customers)
                 database.deliveryDao().insertDeliveries(v.deliveries)
                 database.paymentDao().insertPayments(v.payments)
+                if (v.routes.isNotEmpty()) {
+                    database.routeDao().insertRoutes(v.routes)
+                }
+                if (v.customerNotes.isNotEmpty()) {
+                    database.customerNoteDao().insertNotes(v.customerNotes)
+                }
             }
             RestoreResult(true, "Successfully reverted to pre-restore safety snapshot ✓")
         } catch (e: Exception) {
@@ -480,5 +554,13 @@ object BackupManager {
     fun hasSafetySnapshot(context: Context): Boolean {
         val f = File(context.filesDir, SAFETY_BACKUP_FILENAME)
         return f.exists() && f.length() > 0
+    }
+
+    fun getLatestBackupFile(context: Context): File? {
+        val internalBackupsDir = File(context.filesDir, "backups")
+        if (!internalBackupsDir.exists()) return null
+        return internalBackupsDir.listFiles()
+            ?.filter { it.isFile && it.extension == "json" && !it.name.contains("safety") }
+            ?.maxByOrNull { it.lastModified() }
     }
 }

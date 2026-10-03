@@ -25,6 +25,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import com.shahbuddindairy.app.data.model.CustomerNoteEntity
+import com.shahbuddindairy.app.data.model.RouteEntity
+
 data class KhataTimelineItem(
     val id: String,
     val date: String,
@@ -51,6 +54,9 @@ data class CustomerDetailUiState(
     val timeline: List<KhataTimelineItem> = emptyList(),
     val milkDeliveries: List<DeliveryEntity> = emptyList(),
     val payments: List<PaymentEntity> = emptyList(),
+    val customerNotes: List<CustomerNoteEntity> = emptyList(),
+    val pinnedNote: CustomerNoteEntity? = null,
+    val routeName: String = "Main Route",
     val pbsPending: Double = 0.0,
     val isLoading: Boolean = false,
     val pdfExportResult: PdfReportGenerator.PdfResult? = null
@@ -65,15 +71,35 @@ class CustomerDetailViewModel(
     private val _pdfResult = MutableStateFlow<PdfReportGenerator.PdfResult?>(null)
     val pdfResult = _pdfResult.asStateFlow()
 
+    private var lastPaymentActionTime = 0L
+
+    private data class CustomerBaseData(
+        val customer: CustomerEntity?,
+        val deliveries: List<DeliveryEntity>,
+        val payments: List<PaymentEntity>,
+        val pbs: Double
+    )
+
     val uiState: StateFlow<CustomerDetailUiState> = combine(
-        repository.getCustomerById(customerId),
-        repository.getDeliveriesForCustomer(customerId),
-        repository.getPaymentsForCustomer(customerId),
-        repository.getSettingFlow("pbs_pending_$customerId"),
+        combine(
+            repository.getCustomerById(customerId),
+            repository.getDeliveriesForCustomer(customerId),
+            repository.getPaymentsForCustomer(customerId),
+            repository.getSettingFlow("pbs_pending_$customerId")
+        ) { customer, deliveries, payments, pbsStr ->
+            CustomerBaseData(
+                customer = customer,
+                deliveries = deliveries,
+                payments = payments,
+                pbs = pbsStr?.toDoubleOrNull() ?: 0.0
+            )
+        },
+        repository.getNotesForCustomer(customerId),
+        repository.getAllRoutes(),
         _pdfResult
-    ) { customer, deliveries, payments, pbsStr, pdfRes ->
-        val pbs = pbsStr?.toDoubleOrNull() ?: 0.0
-        buildCustomerState(customer, deliveries, payments, pbs, pdfRes)
+    ) { base, notes, routes, pdfRes ->
+        val rName = routes.find { it.id == base.customer?.routeId }?.name ?: "Main Route"
+        buildCustomerState(base.customer, base.deliveries, base.payments, base.pbs, notes, rName, pdfRes)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -91,6 +117,8 @@ class CustomerDetailViewModel(
         deliveries: List<DeliveryEntity>,
         payments: List<PaymentEntity>,
         pbsPending: Double,
+        notes: List<CustomerNoteEntity>,
+        routeName: String,
         pdfRes: PdfReportGenerator.PdfResult?
     ): CustomerDetailUiState {
         if (customer == null) {
@@ -187,10 +215,66 @@ class CustomerDetailViewModel(
             timeline = timelineWithBalance,
             milkDeliveries = deliveries,
             payments = payments,
+            customerNotes = notes,
+            pinnedNote = notes.firstOrNull { it.isPinned },
+            routeName = routeName,
             pbsPending = pbsPending,
             isLoading = false,
             pdfExportResult = pdfRes
         )
+    }
+
+    fun saveNote(content: String, category: String = "General", isPinned: Boolean = false) {
+        viewModelScope.launch {
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            val note = CustomerNoteEntity(
+                id = "note_${System.currentTimeMillis()}_$customerId",
+                customerId = customerId,
+                content = content.trim(),
+                category = category,
+                isPinned = isPinned,
+                createdAt = nowStr,
+                updatedAt = nowStr
+            )
+            repository.saveNote(note)
+        }
+    }
+
+    fun deleteNote(noteId: String) {
+        viewModelScope.launch {
+            repository.deleteNote(noteId)
+        }
+    }
+
+    fun togglePinNote(note: CustomerNoteEntity) {
+        viewModelScope.launch {
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            val updated = note.copy(isPinned = !note.isPinned, updatedAt = nowStr)
+            repository.saveNote(updated)
+        }
+    }
+
+    fun recordOneTapPayment(amount: Double) {
+        val now = System.currentTimeMillis()
+        if (now - lastPaymentActionTime < 1500L) return
+        lastPaymentActionTime = now
+
+        viewModelScope.launch {
+            val id = "pay_ot_${now}_$customerId"
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            val payment = PaymentEntity(
+                id = id,
+                customerId = customerId,
+                date = CalculationEngine.todayStr(),
+                amount = amount,
+                paymentMode = "Cash",
+                paymentSubtype = "Quick Payment",
+                note = "One-Tap Payment",
+                createdAt = nowStr,
+                isVoid = false
+            )
+            repository.savePayment(payment)
+        }
     }
 
     fun recordDirectPayment(

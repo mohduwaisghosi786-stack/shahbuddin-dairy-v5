@@ -18,7 +18,9 @@ class DairyApplication : Application() {
             database.customerDao(),
             database.deliveryDao(),
             database.paymentDao(),
-            database.appSettingDao()
+            database.appSettingDao(),
+            database.customerNoteDao(),
+            database.routeDao()
         )
     }
 

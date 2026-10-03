@@ -20,6 +20,12 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class ReportPeriod {
+    DAILY,
+    WEEKLY,
+    MONTHLY
+}
+
 data class DailyCustomerReportRow(
     val customer: CustomerEntity,
     val delivery: DeliveryEntity?,
@@ -32,18 +38,22 @@ data class DailyCustomerReportRow(
 )
 
 data class ReportsUiState(
+    val selectedPeriod: ReportPeriod = ReportPeriod.DAILY,
     val selectedDate: String = CalculationEngine.todayStr(),
     val totalSoldLiters: Double = 0.0,
     val buffaloLiters: Double = 0.0,
     val cowLiters: Double = 0.0,
     val totalBill: Double = 0.0,
     val totalCashCollected: Double = 0.0,
+    val totalOnlineCollected: Double = 0.0,
     val pendingDue: Double = 0.0,
     val advanceCollected: Double = 0.0,
     val servedCount: Int = 0,
     val nagaCount: Int = 0,
     val pendingCount: Int = 0,
     val customerRows: List<DailyCustomerReportRow> = emptyList(),
+    val periodLabel: String = "Today",
+    val trendVsYesterdayPercent: Double? = null,
     val isLoading: Boolean = false,
     val pdfResult: PdfReportGenerator.PdfResult? = null
 )
@@ -54,53 +64,100 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedDate = MutableStateFlow(CalculationEngine.todayStr())
     val selectedDate = _selectedDate.asStateFlow()
 
+    private val _selectedPeriod = MutableStateFlow(ReportPeriod.DAILY)
+    val selectedPeriod = _selectedPeriod.asStateFlow()
+
     private val _pdfResult = MutableStateFlow<PdfReportGenerator.PdfResult?>(null)
     val pdfResult = _pdfResult.asStateFlow()
 
     val uiState: StateFlow<ReportsUiState> = combine(
         _selectedDate,
+        _selectedPeriod,
         repository.getAllCustomers(),
         _pdfResult
-    ) { date, customers, pdfRes ->
-        buildDailyReport(date, customers, pdfRes)
+    ) { date, period, customers, pdfRes ->
+        buildReport(date, period, customers, pdfRes)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         ReportsUiState(isLoading = true)
     )
 
-    private suspend fun buildDailyReport(
+    private suspend fun buildReport(
         date: String,
+        period: ReportPeriod,
         customers: List<CustomerEntity>,
         pdfRes: PdfReportGenerator.PdfResult?
     ): ReportsUiState = withContext(Dispatchers.IO) {
-        val deliveries = repository.getDeliveriesForDateDirect(date)
-        val delivMap = deliveries.associateBy { it.customerId }
+        val allDeliveries = repository.getAllDeliveriesDirect()
+        val allPayments = repository.getAllPaymentsDirect()
+
+        val periodDeliveries = when (period) {
+            ReportPeriod.DAILY -> allDeliveries.filter { it.date == date }
+            ReportPeriod.WEEKLY -> {
+                val days = (0..6).map { CalculationEngine.prevDayStr(date, it) }.toSet()
+                allDeliveries.filter { it.date in days }
+            }
+            ReportPeriod.MONTHLY -> {
+                val days = (0..29).map { CalculationEngine.prevDayStr(date, it) }.toSet()
+                allDeliveries.filter { it.date in days }
+            }
+        }
+
+        val periodPayments = when (period) {
+            ReportPeriod.DAILY -> allPayments.filter { it.date == date }
+            ReportPeriod.WEEKLY -> {
+                val days = (0..6).map { CalculationEngine.prevDayStr(date, it) }.toSet()
+                allPayments.filter { it.date in days }
+            }
+            ReportPeriod.MONTHLY -> {
+                val days = (0..29).map { CalculationEngine.prevDayStr(date, it) }.toSet()
+                allPayments.filter { it.date in days }
+            }
+        }
+
+        val delivMap = periodDeliveries.groupBy { it.customerId }
 
         var sumLiters = 0.0
         var buffalo = 0.0
         var cow = 0.0
         var sumBill = 0.0
         var sumCash = 0.0
+        var sumOnline = 0.0
         var served = 0
         var naga = 0
         var pending = 0
+
+        for (p in periodPayments) {
+            if (!p.isVoid) {
+                if (p.paymentMode == "Cash") sumCash += p.amount else sumOnline += p.amount
+            }
+        }
 
         val rows = mutableListOf<DailyCustomerReportRow>()
 
         for (c in customers) {
             if (c.isArchived == 1 || c.isActive == 0) continue
 
-            val d = delivMap[c.id]
-            val isServed = d != null && !d.isVoid && d.status == "delivered"
-            val isNaga = d != null && !d.isVoid && d.status == "skipped"
+            val custDelivs = delivMap[c.id] ?: emptyList()
+            val latestD = custDelivs.lastOrNull()
+            val isServed = custDelivs.any { !it.isVoid && it.status == "delivered" }
+            val isNaga = custDelivs.any { !it.isVoid && it.status == "skipped" }
 
-            if (isServed && d != null) {
+            val custLiters = custDelivs.filter { !it.isVoid && it.status == "delivered" }.sumOf { it.liters }
+            val custBill = custDelivs.filter { !it.isVoid && it.status == "delivered" }.sumOf { it.totalAmount }
+            val custCash = custDelivs.filter { !it.isVoid }.sumOf { it.paidCash }
+            val custOnline = custDelivs.filter { !it.isVoid }.sumOf { it.paidOnline }
+
+            if (isServed) {
                 served++
-                sumLiters += d.liters
-                if (d.milkType == "गाय") cow += d.liters else buffalo += d.liters
-                sumBill += d.totalAmount
-                sumCash += d.paidCash
+                sumLiters += custLiters
+                custDelivs.filter { !it.isVoid && it.status == "delivered" }.forEach { d ->
+                    if (d.milkType == "गाय") cow += d.liters else buffalo += d.liters
+                }
+                sumBill += custBill
+                sumCash += custCash
+                sumOnline += custOnline
             } else if (isNaga) {
                 naga++
             } else {
@@ -110,36 +167,59 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             rows.add(
                 DailyCustomerReportRow(
                     customer = c,
-                    delivery = d,
+                    delivery = latestD,
                     isServed = isServed,
                     isNaga = isNaga,
-                    liters = if (isServed && d != null) d.liters else 0.0,
-                    rate = if (d != null) d.rate else c.ratePerLiter,
-                    bill = if (isServed && d != null) d.totalAmount else 0.0,
-                    cashPaid = if (d != null) d.paidCash else 0.0
+                    liters = custLiters,
+                    rate = latestD?.rate ?: c.ratePerLiter,
+                    bill = custBill,
+                    cashPaid = custCash + custOnline
                 )
             )
         }
 
-        val pendingDue = if (sumBill > sumCash) sumBill - sumCash else 0.0
-        val advance = if (sumCash > sumBill) sumCash - sumBill else 0.0
+        val pendingDue = if (sumBill > (sumCash + sumOnline)) sumBill - (sumCash + sumOnline) else 0.0
+        val advance = if ((sumCash + sumOnline) > sumBill) (sumCash + sumOnline) - sumBill else 0.0
+
+        // Calculate comparison trend (vs yesterday)
+        val trend = if (period == ReportPeriod.DAILY) {
+            val yesterdayDate = CalculationEngine.prevDayStr(date)
+            val yLiters = allDeliveries.filter { it.date == yesterdayDate && !it.isVoid && it.status == "delivered" }.sumOf { it.liters }
+            if (yLiters > 0.0) {
+                CalculationEngine.round2(((sumLiters - yLiters) / yLiters) * 100.0)
+            } else null
+        } else null
+
+        val pLabel = when (period) {
+            ReportPeriod.DAILY -> "Daily (${CalculationEngine.formatDateDisplay(date)})"
+            ReportPeriod.WEEKLY -> "Last 7 Days (साप्ताहिक)"
+            ReportPeriod.MONTHLY -> "Last 30 Days (मासिक)"
+        }
 
         ReportsUiState(
+            selectedPeriod = period,
             selectedDate = date,
             totalSoldLiters = CalculationEngine.round2(sumLiters),
             buffaloLiters = CalculationEngine.round2(buffalo),
             cowLiters = CalculationEngine.round2(cow),
             totalBill = CalculationEngine.round2(sumBill),
             totalCashCollected = CalculationEngine.round2(sumCash),
+            totalOnlineCollected = CalculationEngine.round2(sumOnline),
             pendingDue = CalculationEngine.round2(pendingDue),
             advanceCollected = CalculationEngine.round2(advance),
             servedCount = served,
             nagaCount = naga,
             pendingCount = pending,
             customerRows = rows,
+            periodLabel = pLabel,
+            trendVsYesterdayPercent = trend,
             isLoading = false,
             pdfResult = pdfRes
         )
+    }
+
+    fun onPeriodSelected(period: ReportPeriod) {
+        _selectedPeriod.value = period
     }
 
     fun onDateSelected(date: String) {

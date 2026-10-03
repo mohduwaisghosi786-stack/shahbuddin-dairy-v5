@@ -14,13 +14,18 @@ object CalculationEngine {
 
     fun round2(v: Double): Double = (v * 100.0).roundToInt() / 100.0
 
+    fun suggestMilkFromCash(cash: Double, rate: Double): Double {
+        if (cash <= 0.0 || rate <= 0.0) return 0.0
+        return round2(cash / rate)
+    }
+
     fun todayStr(): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         return sdf.format(Date())
     }
 
-    fun prevDayStr(currentDate: String): String {
-        return shiftDay(currentDate, -1)
+    fun prevDayStr(currentDate: String, daysAgo: Int = 1): String {
+        return shiftDay(currentDate, -daysAgo)
     }
 
     fun nextDayStr(currentDate: String): String {

@@ -7,6 +7,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,22 +28,27 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Payment
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -115,7 +121,7 @@ fun CustomerDetailScreen(
                         )
                         uiState.customer?.let {
                             Text(
-                                text = "#${it.id} • ${it.mohalla}${if (it.landmark.isNotBlank()) " • ${it.landmark}" else ""}",
+                                text = "#${it.id} • 📍 ${uiState.routeName} • ${it.mohalla}${if (it.landmark.isNotBlank()) " • ${it.landmark}" else ""}",
                                 fontSize = 11.5.sp,
                                 color = colorScheme.onSurfaceVariant
                             )
@@ -289,6 +295,101 @@ fun CustomerDetailScreen(
                     }
                 }
 
+                // PINNED NOTE BANNER
+                uiState.pinnedNote?.let { pNote ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFEF3C7),
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp)
+                            .clickable { selectedTab = 3 }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📌", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${pNote.category}: ${pNote.content}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF92400E),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
+                // ONE-TAP QUICK PAYMENT RECONCILIATION
+                if (uiState.currentBalance > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "⚡ One-Tap Pay:",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.primaryContainer,
+                            modifier = Modifier.clickable {
+                                viewModel.recordOneTapPayment(uiState.currentBalance)
+                            }
+                        ) {
+                            Text(
+                                text = "Pay Full ₹%.0f".format(uiState.currentBalance),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                        if (uiState.currentBalance >= 100.0) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.clickable {
+                                    viewModel.recordOneTapPayment(100.0)
+                                }
+                            ) {
+                                Text(
+                                    text = "Pay ₹100",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                        if (uiState.currentBalance >= 500.0) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.clickable {
+                                    viewModel.recordOneTapPayment(500.0)
+                                }
+                            ) {
+                                Text(
+                                    text = "Pay ₹500",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // 2. QUICK ACTIONS BAR
                 Row(
                     modifier = Modifier
@@ -347,6 +448,11 @@ fun CustomerDetailScreen(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
                         text = { Text("Payments (${uiState.payments.size})", fontSize = 12.sp) }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        text = { Text("Notes (${uiState.customerNotes.size})", fontSize = 12.sp) }
                     )
                 }
 
@@ -411,6 +517,17 @@ fun CustomerDetailScreen(
                                 }
                             }
                         }
+                    }
+                    3 -> {
+                        // Customer Notes Tab
+                        CustomerNotesTabContent(
+                            notes = uiState.customerNotes,
+                            onAddNote = { content, cat, isPinned ->
+                                viewModel.saveNote(content, cat, isPinned)
+                            },
+                            onDeleteNote = { id -> viewModel.deleteNote(id) },
+                            onTogglePin = { note -> viewModel.togglePinNote(note) }
+                        )
                     }
                 }
             }
@@ -1032,3 +1149,174 @@ fun EditCustomerDialog(
         containerColor = colorScheme.surface
     )
 }
+
+@Composable
+private fun CustomerNotesTabContent(
+    notes: List<CustomerNoteEntity>,
+    onAddNote: (String, String, Boolean) -> Unit,
+    onDeleteNote: (String) -> Unit,
+    onTogglePin: (CustomerNoteEntity) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var newNoteText by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("General") }
+    var isPinned by remember { mutableStateOf(false) }
+    val categories = listOf("General", "Delivery", "Payment", "Timing")
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Add Note Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+            border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Add Note for Customer (टिप्पणी जोड़ें)",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+
+                OutlinedTextField(
+                    value = newNoteText,
+                    onValueChange = { newNoteText = it },
+                    placeholder = { Text("e.g. सुबह 6 बजे milk देना है, gate के पीछे...", fontSize = 12.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colorScheme.surfaceContainer,
+                        unfocusedContainerColor = colorScheme.surfaceContainer
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    categories.forEach { cat ->
+                        FilterChip(
+                            selected = selectedCategory == cat,
+                            onClick = { selectedCategory = cat },
+                            label = { Text(cat, fontSize = 11.sp) },
+                            shape = RoundedCornerShape(6.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { isPinned = !isPinned }
+                    ) {
+                        Checkbox(checked = isPinned, onCheckedChange = { isPinned = it })
+                        Text("Pin note to top (पिन करें)", fontSize = 11.5.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            if (newNoteText.isNotBlank()) {
+                                onAddNote(newNoteText.trim(), selectedCategory, isPinned)
+                                newNoteText = ""
+                                isPinned = false
+                            }
+                        },
+                        enabled = newNoteText.isNotBlank(),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Save Note", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // List Notes
+        if (notes.isEmpty()) {
+            EmptyState(
+                title = "No Notes",
+                message = "No special notes or delivery instructions added for this customer yet."
+            )
+        } else {
+            notes.forEach { note ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (note.isPinned) Color(0xFFFEF3C7) else colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (note.isPinned) Color(0xFFF59E0B) else colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (note.isPinned) {
+                                    Text("📌 ", fontSize = 11.sp)
+                                }
+                                Text(
+                                    text = note.category,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (note.isPinned) Color(0xFFB45309) else colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = note.createdAt.take(10),
+                                    fontSize = 10.sp,
+                                    color = colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = note.content,
+                                fontSize = 13.5.sp,
+                                color = if (note.isPinned) Color(0xFF78350F) else colorScheme.onSurface
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { onTogglePin(note) }) {
+                                Icon(
+                                    imageVector = Icons.Default.PushPin,
+                                    contentDescription = "Pin",
+                                    tint = if (note.isPinned) Color(0xFFD97706) else colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            IconButton(onClick = { onDeleteNote(note.id) }) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

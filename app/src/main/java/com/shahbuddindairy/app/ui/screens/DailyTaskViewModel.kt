@@ -5,8 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shahbuddindairy.app.DairyApplication
 import com.shahbuddindairy.app.data.model.CustomerEntity
+import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import com.shahbuddindairy.app.data.model.DeliveryEntity
 import com.shahbuddindairy.app.data.model.PaymentEntity
+import com.shahbuddindairy.app.data.model.RouteEntity
 import com.shahbuddindairy.app.domain.CalculationEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +34,16 @@ enum class DailyFilter {
     ADVANCE
 }
 
+data class RouteProgressInfo(
+    val routeId: String,
+    val routeName: String,
+    val totalCustomers: Int,
+    val deliveredCount: Int,
+    val pendingCount: Int,
+    val nagaCount: Int,
+    val percentComplete: Int
+)
+
 data class DailyCustomerCardItem(
     val customer: CustomerEntity,
     val delivery: DeliveryEntity?,
@@ -53,7 +65,11 @@ data class DailyCustomerCardItem(
     val pbsPending: Double = 0.0,
     val suggestedMilkFromCash: Double? = null,
     val hasUnsavedChanges: Boolean = false,
-    val routeIndex: Int = 0
+    val routeIndex: Int = 0,
+    val pinnedNote: String? = null,
+    val notesCount: Int = 0,
+    val routeId: String = "default",
+    val routeName: String = "Main Route"
 )
 
 data class DailyTaskUiState(
@@ -70,7 +86,12 @@ data class DailyTaskUiState(
     val totalMarketDue: Double = 0.0,
     val totalPbsPending: Double = 0.0,
     val isLoading: Boolean = false,
-    val allActiveCustomers: List<CustomerEntity> = emptyList()
+    val allActiveCustomers: List<CustomerEntity> = emptyList(),
+    val availableRoutes: List<RouteEntity> = emptyList(),
+    val selectedRouteId: String = "ALL",
+    val routeProgress: RouteProgressInfo? = null,
+    val motivationText: String = "",
+    val showMotivation: Boolean = true
 )
 
 class DailyTaskViewModel(application: Application) : AndroidViewModel(application) {
@@ -85,12 +106,21 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
     private val _activeFilter = MutableStateFlow(DailyFilter.ALL)
     val activeFilter = _activeFilter.asStateFlow()
 
-    // Bumps when DB mutations occur (save delivery, payment, route update)
+    private val _selectedRouteId = MutableStateFlow("ALL")
+    val selectedRouteId = _selectedRouteId.asStateFlow()
+
+    private val _showMotivation = MutableStateFlow(true)
+    val showMotivation = _showMotivation.asStateFlow()
+
+    // Bumps when DB mutations occur (save delivery, payment, route update, note update)
     private val _refreshTrigger = MutableStateFlow(0)
 
     // Transient inputs keyed strictly by immutable customerId
     private val _quantities = MutableStateFlow<Map<Long, String>>(emptyMap())
     private val _cashInputs = MutableStateFlow<Map<Long, String>>(emptyMap())
+
+    // Debounce timestamp for one-tap payments to prevent duplicates
+    private var lastPaymentActionTime = 0L
 
     // Safe pending confirmation dialog item
     private val _pendingConfirmItem = MutableStateFlow<DailyCustomerCardItem?>(null)
@@ -100,7 +130,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         val prevDue: Double,
         val currentBal: Double,
         val lastPayment: CalculationEngine.LastPaymentInfo?,
-        val pbsPending: Double
+        val pbsPending: Double,
+        val pinnedNote: String?,
+        val notesCount: Int
     )
 
     private data class BaseDailyData(
@@ -109,7 +141,8 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         val todayDeliveries: Map<Long, DeliveryEntity>,
         val profiles: Map<Long, CustomerProfile>,
         val totalMarketDue: Double,
-        val totalPbsPending: Double
+        val totalPbsPending: Double,
+        val routes: List<RouteEntity>
     )
 
     // Cached base data flow: Queries DB ONLY when date, customers, pbs, or mutation trigger changes
@@ -125,8 +158,13 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
 
             val allDeliveries = repository.getAllDeliveriesDirect()
             val allPayments = repository.getAllPaymentsDirect()
+            val allNotes = repository.getAllNotesDirect()
+            val allRoutes = repository.getAllRoutesDirect()
+
             val deliveriesByCust = allDeliveries.groupBy { it.customerId }
             val paymentsByCust = allPayments.groupBy { it.customerId }
+            val pinnedNotesMap = allNotes.filter { it.isPinned }.associateBy { it.customerId }
+            val notesCountMap = allNotes.groupBy { it.customerId }.mapValues { it.value.size }
 
             val pbsMap = mutableMapOf<Long, Double>()
             for (s in pbsSettings) {
@@ -158,7 +196,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                     prevDue = prevDue,
                     currentBal = currentBal,
                     lastPayment = lastPay,
-                    pbsPending = custPbs
+                    pbsPending = custPbs,
+                    pinnedNote = pinnedNotesMap[c.id]?.content,
+                    notesCount = notesCountMap[c.id] ?: 0
                 )
             }
 
@@ -168,19 +208,39 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 todayDeliveries = todayDelivMap,
                 profiles = profileMap,
                 totalMarketDue = marketDue,
-                totalPbsPending = sumPbs
+                totalPbsPending = sumPbs,
+                routes = allRoutes
             )
         }
+    }
+
+    private data class FilterAndInputState(
+        val query: String,
+        val filter: DailyFilter,
+        val routeFilter: String,
+        val showMotivation: Boolean,
+        val quantities: Map<Long, String>,
+        val cashInputs: Map<Long, String>
+    )
+
+    private val filterAndInputFlow = combine(
+        combine(_searchQuery, _activeFilter, _selectedRouteId) { q, f, r -> Triple(q, f, r) },
+        combine(_showMotivation, _quantities, _cashInputs) { m, q, c -> Triple(m, q, c) }
+    ) { (query, filter, routeFilter), (showMotiv, quantities, cashInputs) ->
+        FilterAndInputState(query, filter, routeFilter, showMotiv, quantities, cashInputs)
     }
 
     // High performance UI state: pure in-memory calculation (0 DB queries on keystroke)
     val uiState: StateFlow<DailyTaskUiState> = combine(
         baseDataFlow,
-        _searchQuery,
-        _activeFilter,
-        _quantities,
-        _cashInputs
-    ) { base, query, filter, quantities, cashInputs ->
+        filterAndInputFlow
+    ) { base, inputs ->
+        val query = inputs.query
+        val filter = inputs.filter
+        val routeFilter = inputs.routeFilter
+        val showMotiv = inputs.showMotivation
+        val quantities = inputs.quantities
+        val cashInputs = inputs.cashInputs
         var sumMilk = 0.0
         var sumBill = 0.0
         var sumCash = 0.0
@@ -188,9 +248,16 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         var pending = 0
         var naga = 0
 
+        val routesMap = base.routes.associateBy { it.id }
         val cards = mutableListOf<DailyCustomerCardItem>()
 
         val activeCustomers = base.customers.filter { it.isArchived == 0 }
+
+        // Route progress counters
+        var routeTotal = 0
+        var routeDelivered = 0
+        var routePending = 0
+        var routeNaga = 0
 
         for ((idx, c) in activeCustomers.withIndex()) {
             val d = base.todayDeliveries[c.id]
@@ -239,7 +306,7 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             }
             val cashInputStr = existingCashStr ?: if (d != null && d.paidCash > 0) "%.0f".format(Locale.US, d.paidCash) else ""
 
-            val profile = base.profiles[c.id] ?: CustomerProfile(0.0, 0.0, null, 0.0)
+            val profile = base.profiles[c.id] ?: CustomerProfile(0.0, 0.0, null, 0.0, null, 0)
             val prevDue = profile.prevDue
             val todayBill = CalculationEngine.round2(milkQuantity * applicableRate)
             val totalReq = CalculationEngine.round2(todayBill + prevDue)
@@ -249,10 +316,20 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
 
             // Cash -> Milk suggestion whenever cash > 0 and rate > 0
             val suggestedMilk = if (cashPaid > 0 && applicableRate > 0) {
-                CalculationEngine.round2(cashPaid / applicableRate)
+                CalculationEngine.suggestMilkFromCash(cashPaid, applicableRate)
             } else null
 
             val hasUnsaved = existingQuantityStr != null || existingCashStr != null
+
+            val rName = routesMap[c.routeId]?.name ?: "Main Route"
+
+            // Count progress for selected route
+            if (routeFilter == "ALL" || c.routeId == routeFilter) {
+                routeTotal++
+                if (isDone) routeDelivered++
+                else if (isNaga) routeNaga++
+                else if (!isAltOff && c.isActive == 1) routePending++
+            }
 
             val item = DailyCustomerCardItem(
                 customer = c,
@@ -275,8 +352,17 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 pbsPending = profile.pbsPending,
                 suggestedMilkFromCash = suggestedMilk,
                 hasUnsavedChanges = hasUnsaved,
-                routeIndex = idx
+                routeIndex = idx,
+                pinnedNote = profile.pinnedNote,
+                notesCount = profile.notesCount,
+                routeId = c.routeId,
+                routeName = rName
             )
+
+            // Route filter check
+            if (routeFilter != "ALL" && c.routeId != routeFilter) {
+                continue
+            }
 
             val q = query.trim()
             val matchesQuery = q.isBlank() ||
@@ -284,7 +370,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                     c.id.toString() == q ||
                     c.phone.contains(q) ||
                     c.mohalla.contains(q, ignoreCase = true) ||
-                    c.landmark.contains(q, ignoreCase = true)
+                    c.landmark.contains(q, ignoreCase = true) ||
+                    rName.contains(q, ignoreCase = true) ||
+                    (profile.pinnedNote != null && profile.pinnedNote.contains(q, ignoreCase = true))
 
             if (!matchesQuery) continue
 
@@ -304,6 +392,24 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
+        val routeProgressPercent = if (routeTotal > 0) ((routeDelivered.toDouble() / routeTotal) * 100).toInt() else 0
+        val activeRouteName = if (routeFilter == "ALL") "All Routes" else routesMap[routeFilter]?.name ?: "Route"
+        val progressInfo = RouteProgressInfo(
+            routeId = routeFilter,
+            routeName = activeRouteName,
+            totalCustomers = routeTotal,
+            deliveredCount = routeDelivered,
+            pendingCount = routePending,
+            nagaCount = routeNaga,
+            percentComplete = routeProgressPercent
+        )
+
+        val motiv = when {
+            completed == 0 && pending > 0 -> "आज $pending डिलीवरी बाकी हैं। पहला ग्राहक शुरू करें!"
+            pending == 0 && completed > 0 -> "शानदार! आज की सभी $completed डिलीवरी पूरी हो गईं ✓"
+            else -> "आज $completed/${completed + pending} पूरी • $pending बाकी • नकद ₹%,d".format(Locale.ENGLISH, sumCash.toLong())
+        }
+
         DailyTaskUiState(
             selectedDate = base.date,
             searchQuery = query,
@@ -318,13 +424,131 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             totalMarketDue = CalculationEngine.round2(base.totalMarketDue),
             totalPbsPending = CalculationEngine.round2(base.totalPbsPending),
             isLoading = false,
-            allActiveCustomers = activeCustomers
+            allActiveCustomers = activeCustomers,
+            availableRoutes = base.routes,
+            selectedRouteId = routeFilter,
+            routeProgress = progressInfo,
+            motivationText = motiv,
+            showMotivation = showMotiv
         )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         DailyTaskUiState(isLoading = true)
     )
+
+    fun selectRouteFilter(routeId: String) {
+        _selectedRouteId.value = routeId
+    }
+
+    fun toggleMotivation(show: Boolean) {
+        _showMotivation.value = show
+    }
+
+    // One-Tap Quick Payment with duplicate-tap debounce protection (<1500ms)
+    fun recordOneTapPayment(
+        customerId: Long,
+        amount: Double,
+        mode: String = "Cash",
+        note: String = "Quick Payment",
+        onSuccess: (() -> Unit)? = null
+    ) {
+        val now = System.currentTimeMillis()
+        if (now - lastPaymentActionTime < 1500L) return
+        lastPaymentActionTime = now
+
+        viewModelScope.launch {
+            val id = "pay_ot_${now}_$customerId"
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            val payment = PaymentEntity(
+                id = id,
+                customerId = customerId,
+                date = _selectedDate.value,
+                amount = amount,
+                paymentMode = mode,
+                paymentSubtype = "Quick Payment",
+                note = note,
+                createdAt = nowStr,
+                isVoid = false
+            )
+            repository.savePayment(payment)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // Customer Notes Management
+    fun saveCustomerNote(
+        customerId: Long,
+        content: String,
+        category: String = "General",
+        isPinned: Boolean = false,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            val noteId = "note_${System.currentTimeMillis()}_$customerId"
+            val note = CustomerNoteEntity(
+                id = noteId,
+                customerId = customerId,
+                content = content.trim(),
+                category = category,
+                isPinned = isPinned,
+                createdAt = nowStr,
+                updatedAt = nowStr
+            )
+            repository.saveNote(note)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    fun getNotesForCustomer(customerId: Long): kotlinx.coroutines.flow.Flow<List<CustomerNoteEntity>> {
+        return repository.getNotesForCustomer(customerId)
+    }
+
+    fun togglePinCustomerNote(note: CustomerNoteEntity, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+            val updated = note.copy(isPinned = !note.isPinned, updatedAt = nowStr)
+            repository.saveNote(updated)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    fun deleteCustomerNote(noteId: String, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.deleteNote(noteId)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // Route Management
+    fun saveRoute(route: RouteEntity, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.saveRoute(route)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    fun deleteRoute(routeId: String, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.deleteRoute(routeId)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    fun assignCustomerToRoute(customerId: Long, routeId: String, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.assignCustomerToRoute(customerId, routeId)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
 
     fun onDateSelected(newDate: String) {
         _selectedDate.value = newDate

@@ -2,7 +2,10 @@ package com.shahbuddindairy.app.ui.screens
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shahbuddindairy.app.DairyApplication
@@ -120,6 +123,48 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
             }
             _uiState.value = _uiState.value.copy(isBackingUp = false, backupResult = result)
             refreshStatus()
+        }
+    }
+
+    fun shareBackupToCloud(context: Context) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isBackingUp = true)
+            var backupFile = withContext(Dispatchers.IO) {
+                BackupManager.getLatestBackupFile(context)
+            }
+            if (backupFile == null) {
+                val res = withContext(Dispatchers.IO) {
+                    BackupManager.createBackup(context, database)
+                }
+                _uiState.value = _uiState.value.copy(backupResult = res)
+                backupFile = withContext(Dispatchers.IO) {
+                    BackupManager.getLatestBackupFile(context)
+                }
+            }
+            _uiState.value = _uiState.value.copy(isBackingUp = false)
+
+            if (backupFile != null && backupFile.exists()) {
+                try {
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        backupFile
+                    )
+                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/json"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_SUBJECT, "Shahbuddin Dairy Backup - ${backupFile.name}")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    val chooser = Intent.createChooser(shareIntent, "Save Backup to Google Drive / Cloud")
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(chooser)
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Could not open share: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            } else {
+                Toast.makeText(context, "No backup file found to share", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

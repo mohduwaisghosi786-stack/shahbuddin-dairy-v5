@@ -25,8 +25,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Clear
@@ -55,9 +59,13 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import com.shahbuddindairy.app.data.model.RouteEntity
 import androidx.compose.material3.Checkbox
@@ -136,9 +144,14 @@ fun DailyTaskScreen(
     var customerForNotes by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var showRouteManagerDialog by remember { mutableStateOf(false) }
 
-    // External PBS Pending Amount Edit Dialog State
-    var editingPbsCustomer by remember { mutableStateOf<Pair<Long, Double>?>(null) }
-    var editingPbsText by remember { mutableStateOf("") }
+    // V7.6 Dialog States
+    var editingDueCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var editingAdvanceCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var editingMasterCustomer by remember { mutableStateOf<CustomerEntity?>(null) }
+    var overridingBillCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var editingMilkCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var pbsManagerCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var runnerCashConfirmItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
 
     // Synchronize ongoing delivery route notification
     LaunchedEffect(uiState.selectedDate, uiState.completedCount) {
@@ -174,8 +187,9 @@ fun DailyTaskScreen(
             }
         )
 
-        // MOTIVATION / DAILY FACTUAL PROGRESS BANNER
-        if (uiState.showMotivation && uiState.motivationText.isNotBlank()) {
+        if (viewMode == 0) {
+            // MOTIVATION / DAILY FACTUAL PROGRESS BANNER
+            if (uiState.showMotivation && uiState.motivationText.isNotBlank()) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 color = colorScheme.secondaryContainer.copy(alpha = 0.65f),
@@ -361,145 +375,301 @@ fun DailyTaskScreen(
             }
         }
 
-        // VIEW MODE TOGGLE & SEARCH ROW
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Search Input
-            OutlinedTextField(
-                value = uiState.searchQuery,
-                onValueChange = { viewModel.onSearchQueryChanged(it) },
-                placeholder = { Text("Search name, ID, phone, mohalla...", fontSize = 13.sp) },
-                leadingIcon = {
+            // 1. COMPACT SEARCH BAR (42dp height)
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                    .height(42.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
                         tint = colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
-                },
-                trailingIcon = {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (uiState.searchQuery.isEmpty()) {
+                            Text(
+                                text = "Search name, ID, phone, mohalla...",
+                                fontSize = 12.5.sp,
+                                color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        BasicTextField(
+                            value = uiState.searchQuery,
+                            onValueChange = { viewModel.onSearchQueryChanged(it) },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                fontSize = 13.5.sp,
+                                color = colorScheme.onSurface
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                     if (uiState.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = colorScheme.onSurfaceVariant)
+                        IconButton(
+                            onClick = { viewModel.onSearchQueryChanged("") },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "Clear",
+                                tint = colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
-                },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = colorScheme.surface,
-                    unfocusedContainerColor = colorScheme.surface,
-                    focusedBorderColor = colorScheme.primary,
-                    unfocusedBorderColor = colorScheme.outlineVariant
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.weight(1f)
-            )
+                }
+            }
 
-            // Mode Toggle Button (List vs Runner)
+            // 2. BALANCED ACTION BAR ROW (~36dp height)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // RUNNER MODE TOGGLE
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.primaryContainer,
+                    border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(36.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewMode = 1
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.DirectionsRun,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "RUNNER",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+                }
+
+                // ORDER
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .height(36.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showRouteReorderDialog = true
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SwapVert,
+                            contentDescription = "Order",
+                            tint = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Order", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
+                    }
+                }
+
+                // CALC
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showCalculatorDialog = true
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Calculate,
+                            contentDescription = "Calc",
+                            tint = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Calc", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
+                    }
+                }
+
+                // +QUICK CUSTOMER
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .height(36.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showQuickCustomerDialog = true
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PersonAdd,
+                            contentDescription = "+Quick",
+                            tint = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("+Quick", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
+                    }
+                }
+
+                // ROUTES MANAGER
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainer,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .weight(1.1f)
+                        .height(36.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showRouteManagerDialog = true
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AltRoute,
+                            contentDescription = "Routes",
+                            tint = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Routes", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
+                    }
+                }
+            }
+
+            // FILTER CHIPS ROW
+            FilterChipsRow(
+                activeFilter = uiState.activeFilter,
+                onFilterSelected = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.onFilterSelected(it)
+                }
+            )
+        } else {
+            // DEDICATED RUNNER MODE TOP BAR (No search/filter clutter)
             Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = colorScheme.surfaceContainer,
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
-                modifier = Modifier.clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    viewMode = if (viewMode == 0) 1 else 0
-                }
+                color = colorScheme.primaryContainer.copy(alpha = 0.5f),
+                border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.3f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 3.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(
-                        imageVector = if (viewMode == 0) Icons.AutoMirrored.Filled.DirectionsRun else Icons.AutoMirrored.Filled.FormatListBulleted,
-                        contentDescription = null,
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = if (viewMode == 0) "Runner" else "List",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                }
-            }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.DirectionsRun,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "RUNNER MODE (1-Hand)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary
+                            )
+                            val rName = uiState.selectedRouteId.let { rId -> uiState.availableRoutes.find { it.id == rId }?.name ?: "All Routes" }
+                            Text(
+                                text = "Route: $rName • ${uiState.completedCount}/${uiState.customerCards.size} Done",
+                                fontSize = 10.5.sp,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
 
-            // Route Reorder Button
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = colorScheme.surfaceContainer,
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
-                modifier = Modifier.clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showRouteReorderDialog = true
-                }
-            ) {
-                Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.SwapVert,
-                        contentDescription = "Route Order",
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-            }
-
-            // Dairy Calculator Button
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = colorScheme.surfaceContainer,
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
-                modifier = Modifier.clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showCalculatorDialog = true
-                }
-            ) {
-                Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Calculate,
-                        contentDescription = "Calculator",
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-            }
-
-            // Quick Guest Sale Button
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = colorScheme.surfaceContainer,
-                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
-                modifier = Modifier.clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    showQuickCustomerDialog = true
-                }
-            ) {
-                Box(modifier = Modifier.padding(10.dp), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PersonAdd,
-                        contentDescription = "Quick Customer",
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(19.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surface,
+                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewMode = 0
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                contentDescription = null,
+                                tint = colorScheme.onSurface,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "List Mode",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+                    }
                 }
             }
         }
-
-
-        // FILTER CHIPS ROW
-        FilterChipsRow(
-            activeFilter = uiState.activeFilter,
-            onFilterSelected = {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                viewModel.onFilterSelected(it)
-            }
-        )
 
         Spacer(modifier = Modifier.height(2.dp))
 
@@ -525,7 +695,12 @@ fun DailyTaskScreen(
             }
 
             if (currentItem != null) {
-                DailyTaskRunnerCard(
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    DailyTaskRunnerCard(
                     item = currentItem,
                     currentIndex = currentIndex,
                     totalCount = cards.size,
@@ -548,7 +723,12 @@ fun DailyTaskScreen(
                     },
                     onSaveClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.requestConfirmSave(currentItem)
+                        val cash = currentItem.currentCashInput.toDoubleOrNull() ?: 0.0
+                        if (cash > 0.0) {
+                            runnerCashConfirmItem = currentItem
+                        } else {
+                            viewModel.requestConfirmSave(currentItem)
+                        }
                     },
                     onNagaClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -557,12 +737,19 @@ fun DailyTaskScreen(
                             if (nextTargetId != null) activeCustomerId = nextTargetId
                         }
                     },
-
-                    onKhataClicked = { onNavigateToCustomerKhata(currentItem.customer.id) },
-                    onPbsEditClicked = {
-                        editingPbsCustomer = Pair(currentItem.customer.id, currentItem.pbsPending)
-                        editingPbsText = if (currentItem.pbsPending > 0) "%.0f".format(Locale.US, currentItem.pbsPending) else ""
+                    onAlternateClicked = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val nextTargetId = cards.getOrNull(currentIndex + 1)?.customer?.id ?: cards.getOrNull(currentIndex - 1)?.customer?.id
+                        viewModel.markAlternate(currentItem) {
+                            if (nextTargetId != null) activeCustomerId = nextTargetId
+                        }
                     },
+                    onUndoClicked = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.undoLastDeliveryAction(currentItem.customer.id)
+                    },
+                    onKhataClicked = { onNavigateToCustomerKhata(currentItem.customer.id) },
+                    onPbsEditClicked = { pbsManagerCustomer = currentItem },
                     onCallClicked = {
                         if (currentItem.customer.phone.isNotBlank()) {
                             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${currentItem.customer.phone}"))
@@ -575,8 +762,14 @@ fun DailyTaskScreen(
                     onOneTapPayment = { amt ->
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         viewModel.recordOneTapPayment(currentItem.customer.id, amt)
-                    }
+                    },
+                    onEditCustomerClicked = { editingMasterCustomer = it },
+                    onMilkEditClicked = { editingMilkCustomer = currentItem },
+                    onBillEditClicked = { overridingBillCustomer = currentItem },
+                    onDueEditClicked = { editingDueCustomer = currentItem },
+                    onAdvanceEditClicked = { editingAdvanceCustomer = currentItem }
                 )
+                }
             }
         } else {
             // ROUTE LIST MODE (Compact scrollable list)
@@ -609,10 +802,7 @@ fun DailyTaskScreen(
                             viewModel.markNaga(cardItem)
                         },
                         onKhataClicked = { onNavigateToCustomerKhata(cardItem.customer.id) },
-                        onPbsEditClicked = {
-                            editingPbsCustomer = Pair(cardItem.customer.id, cardItem.pbsPending)
-                            editingPbsText = if (cardItem.pbsPending > 0) "%.0f".format(Locale.US, cardItem.pbsPending) else ""
-                        },
+                        onPbsEditClicked = { pbsManagerCustomer = cardItem },
                         onNextClicked = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             if (cardIndex < uiState.customerCards.size - 1) {
@@ -633,7 +823,12 @@ fun DailyTaskScreen(
                         onOneTapPayment = { amt ->
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             viewModel.recordOneTapPayment(cardItem.customer.id, amt)
-                        }
+                        },
+                        onEditCustomerClicked = { editingMasterCustomer = it },
+                        onMilkEditClicked = { editingMilkCustomer = cardItem },
+                        onBillEditClicked = { overridingBillCustomer = cardItem },
+                        onDueEditClicked = { editingDueCustomer = cardItem },
+                        onAdvanceEditClicked = { editingAdvanceCustomer = cardItem }
                     )
                 }
             }
@@ -680,60 +875,112 @@ fun DailyTaskScreen(
         )
     }
 
-    // EDIT EXTERNAL BOOK / PBS PENDING DIALOG
-    editingPbsCustomer?.let { (cId, currentAmt) ->
-        val customerName = uiState.customerCards.find { it.customer.id == cId }?.customer?.name ?: "Customer"
-        AlertDialog(
-            onDismissRequest = { editingPbsCustomer = null },
-            title = {
-                Text(
-                    text = "Book / PBS Pending Amount",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colorScheme.onSurface
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        text = "Customer #$cId: $customerName\n(बाहरी कॉपी का बकाया — डिजिटल खाते से अलग रहेगा)",
-                        fontSize = 12.5.sp,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = editingPbsText,
-                        onValueChange = { editingPbsText = it },
-                        label = { Text("Manual Book Amount (₹)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = colorScheme.surfaceContainer,
-                            unfocusedContainerColor = colorScheme.surfaceContainer,
-                            focusedBorderColor = colorScheme.primary,
-                            unfocusedBorderColor = colorScheme.outlineVariant
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = editingPbsText.toDoubleOrNull() ?: 0.0
-                        viewModel.updatePbsPending(cId, amount)
-                        editingPbsCustomer = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
-                ) {
-                    Text("Save (सुरक्षित करें)")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { editingPbsCustomer = null }) {
-                    Text("Cancel")
+    // 1. EDIT CUSTOMER MASTER DIALOG (V7.6)
+    editingMasterCustomer?.let { cust ->
+        EditCustomerMasterDialog(
+            customer = cust,
+            onDismiss = { editingMasterCustomer = null },
+            onSave = { updated ->
+                viewModel.updateCustomerMaster(updated) {
+                    editingMasterCustomer = null
                 }
             }
+        )
+    }
+
+    // 2. RECONCILE DUE DIALOG (V7.6)
+    editingDueCustomer?.let { item ->
+        ReconcileDueDialog(
+            item = item,
+            onDismiss = { editingDueCustomer = null },
+            onConfirm = { targetDue, note ->
+                viewModel.recordDueAdjustment(
+                    customerId = item.customer.id,
+                    currentBalance = item.remainingDue,
+                    targetDue = targetDue,
+                    note = note
+                ) {
+                    editingDueCustomer = null
+                }
+            }
+        )
+    }
+
+    // 3. ADJUST ADVANCE DIALOG (V7.6)
+    editingAdvanceCustomer?.let { item ->
+        AdjustAdvanceDialog(
+            item = item,
+            onDismiss = { editingAdvanceCustomer = null },
+            onConfirm = { targetAdvance, note ->
+                viewModel.recordAdvanceAdjustment(
+                    customerId = item.customer.id,
+                    currentAdvance = item.advance,
+                    targetAdvance = targetAdvance,
+                    note = note
+                ) {
+                    editingAdvanceCustomer = null
+                }
+            }
+        )
+    }
+
+    // 4. OVERRIDE BILL DIALOG (V7.6)
+    overridingBillCustomer?.let { item ->
+        OverrideBillDialog(
+            item = item,
+            onDismiss = { overridingBillCustomer = null },
+            onConfirm = { customBill, customCash ->
+                viewModel.saveDeliveryWithCustomBill(
+                    item = item,
+                    customBill = customBill,
+                    customCash = customCash
+                ) {
+                    overridingBillCustomer = null
+                }
+            }
+        )
+    }
+
+    // 5. MILK NUMERIC EDITOR DIALOG (V7.6)
+    editingMilkCustomer?.let { item ->
+        MilkEditorDialog(
+            item = item,
+            onDismiss = { editingMilkCustomer = null },
+            onSave = { newLiters ->
+                viewModel.onQuantityChanged(item.customer.id, "%.2f".format(Locale.US, newLiters))
+                editingMilkCustomer = null
+            }
+        )
+    }
+
+    // 6. PBS / MANUAL BOOK MANAGER DIALOG (V7.6)
+    pbsManagerCustomer?.let { item ->
+        PbsManagerDialog(
+            item = item,
+            viewModel = viewModel,
+            onDismiss = { pbsManagerCustomer = null }
+        )
+    }
+
+    // 7. RUNNER CASH RECEIPT CONFIRMATION DIALOG (V7.6)
+    runnerCashConfirmItem?.let { item ->
+        RunnerCashConfirmDialog(
+            item = item,
+            onConfirm = {
+                val currentCards = uiState.customerCards
+                val cIdx = currentCards.indexOfFirst { it.customer.id == item.customer.id }
+                val nextTargetId = if (cIdx >= 0) {
+                    currentCards.getOrNull(cIdx + 1)?.customer?.id ?: currentCards.getOrNull(cIdx - 1)?.customer?.id
+                } else null
+
+                viewModel.confirmAndSaveTransaction {
+                    if (viewMode == 1 && nextTargetId != null) {
+                        activeCustomerId = nextTargetId
+                    }
+                    runnerCashConfirmItem = null
+                }
+            },
+            onDismiss = { runnerCashConfirmItem = null }
         )
     }
 
@@ -934,7 +1181,12 @@ fun DailyCustomerCard(
     onNextClicked: () -> Unit,
     onCallClicked: () -> Unit,
     onNotesClicked: () -> Unit = {},
-    onOneTapPayment: (Double) -> Unit = {}
+    onOneTapPayment: (Double) -> Unit = {},
+    onEditCustomerClicked: (CustomerEntity) -> Unit = {},
+    onMilkEditClicked: () -> Unit = {},
+    onBillEditClicked: () -> Unit = {},
+    onDueEditClicked: () -> Unit = {},
+    onAdvanceEditClicked: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
     var isExpanded by remember { mutableStateOf(false) }
@@ -1008,6 +1260,15 @@ fun DailyCustomerCard(
                                     .clickable { onCallClicked() }
                             )
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Edit Customer Master",
+                            tint = colorScheme.primary,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clickable { onEditCustomerClicked(item.customer) }
+                        )
                     }
 
                     Row(
@@ -1073,13 +1334,25 @@ fun DailyCustomerCard(
             ) {
                 // Editable Milk Quantity
                 Column(modifier = Modifier.weight(1.3f)) {
-                    Text(
-                        text = "MILK QUANTITY (दूध)",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant,
-                        letterSpacing = 0.4.sp
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onMilkEditClicked() }
+                    ) {
+                        Text(
+                            text = "MILK QUANTITY",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onSurfaceVariant,
+                            letterSpacing = 0.4.sp
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Milk",
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     OutlinedTextField(
                         value = item.currentMilkInput,
@@ -1144,19 +1417,33 @@ fun DailyCustomerCard(
                     }
                 }
 
-                // Today's Bill Box
+                // Today's Bill Box (Clickable for custom override)
                 Column(
                     modifier = Modifier
                         .weight(1.1f)
-                        .background(colorScheme.primaryContainer.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colorScheme.primaryContainer.copy(alpha = 0.5f))
+                        .clickable { onBillEditClicked() }
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    Text(
-                        text = "TODAY'S BILL",
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onPrimaryContainer
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "TODAY BILL",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onPrimaryContainer
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Override Bill",
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(10.dp)
+                        )
+                    }
                     Text(
                         text = CalculationEngine.formatMoney(item.todayBill),
                         fontSize = 15.sp,
@@ -1211,20 +1498,34 @@ fun DailyCustomerCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Previous Due
+                // Previous Due (Clickable to Reconcile / Adjust)
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .background(colorScheme.surfaceContainer, RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colorScheme.surfaceContainer)
                         .border(0.5.dp, colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                        .clickable { onDueEditClicked() }
                         .padding(horizontal = 6.dp, vertical = 5.dp)
                 ) {
-                    Text(
-                        text = "PREV DUE",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "PREV DUE",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Reconcile Due",
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(9.dp)
+                        )
+                    }
                     Text(
                         text = CalculationEngine.formatMoney(item.prevDue),
                         fontSize = 13.sp,
@@ -1243,7 +1544,7 @@ fun DailyCustomerCard(
                 ) {
                     Text(
                         text = "TOTAL REQ",
-                        fontSize = 9.sp,
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = colorScheme.onSurfaceVariant
                     )
@@ -1346,7 +1647,7 @@ fun DailyCustomerCard(
                 }
             }
 
-            // 5. NET DUE / ADVANCE BANNER
+            // 5. NET DUE / ADVANCE BANNER (Clickable for direct reconciliation)
             Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier
@@ -1362,11 +1663,25 @@ fun DailyCustomerCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (item.advance > 0) {
-                    Text(text = "Advance Balance:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
-                    Text(text = CalculationEngine.formatMoney(item.advance), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onAdvanceEditClicked() }
+                    ) {
+                        Text(text = "Advance: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
+                        Text(text = CalculationEngine.formatMoney(item.advance), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Advance", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
+                    }
                 } else if (item.remainingDue > 0) {
-                    Text(text = "Remaining Due (बकाया):", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.error)
-                    Text(text = CalculationEngine.formatMoney(item.remainingDue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.error)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onDueEditClicked() }
+                    ) {
+                        Text(text = "Remaining Due (बकाया): ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.error)
+                        Text(text = CalculationEngine.formatMoney(item.remainingDue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.error)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Reconcile Due", tint = colorScheme.error, modifier = Modifier.size(10.dp))
+                    }
                 } else {
                     Text(text = "Balance:", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
                     Text(text = "₹0 (Cleared ✓)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
@@ -1583,18 +1898,25 @@ fun DailyTaskRunnerCard(
     onUseSuggestedMilk: (Double) -> Unit,
     onSaveClicked: () -> Unit,
     onNagaClicked: () -> Unit,
+    onAlternateClicked: () -> Unit = {},
+    onUndoClicked: () -> Unit = {},
     onKhataClicked: () -> Unit,
     onPbsEditClicked: () -> Unit,
     onCallClicked: () -> Unit,
     onNotesClicked: () -> Unit = {},
-    onOneTapPayment: (Double) -> Unit = {}
+    onOneTapPayment: (Double) -> Unit = {},
+    onEditCustomerClicked: (CustomerEntity) -> Unit = {},
+    onMilkEditClicked: () -> Unit = {},
+    onBillEditClicked: () -> Unit = {},
+    onDueEditClicked: () -> Unit = {},
+    onAdvanceEditClicked: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(12.dp),
+            .padding(10.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -1602,7 +1924,8 @@ fun DailyTaskRunnerCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(14.dp)
         ) {
             // STEP PROGRESS ROW
             Row(
@@ -1626,7 +1949,7 @@ fun DailyTaskRunnerCard(
                 StatusBadge(status = item.statusText)
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // CUSTOMER HERO NAME
             Row(
@@ -1635,7 +1958,7 @@ fun DailyTaskRunnerCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
@@ -1647,34 +1970,37 @@ fun DailyTaskRunnerCard(
                         color = colorScheme.primary
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = item.customer.name,
-                        fontSize = 20.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = colorScheme.onSurface
                     )
                     Text(
                         text = "ID: #${item.customer.id} • ${item.customer.mohalla} ${if (item.customer.landmark.isNotBlank()) "• ${item.customer.landmark}" else ""}${if (item.routeName.isNotBlank()) " • 📍 ${item.routeName}" else ""}",
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = colorScheme.onSurfaceVariant
                     )
                 }
 
-                IconButton(onClick = onKhataClicked) {
-                    Icon(Icons.Default.History, contentDescription = "Khata", tint = colorScheme.primary)
+                IconButton(onClick = { onEditCustomerClicked(item.customer) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Tune, contentDescription = "Edit Master", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onKhataClicked, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.History, contentDescription = "Khata", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
                 }
                 if (item.customer.phone.isNotBlank()) {
-                    IconButton(onClick = onCallClicked) {
-                        Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary)
+                    IconButton(onClick = onCallClicked, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
 
             // PINNED CUSTOMER NOTE BADGE (Runner Mode)
             if (item.pinnedNote != null) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFFFEF3C7),
@@ -1684,14 +2010,14 @@ fun DailyTaskRunnerCard(
                         .clickable { onNotesClicked() }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("📌", fontSize = 12.sp)
+                        Text("📌", fontSize = 11.5.sp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = item.pinnedNote,
-                            fontSize = 12.5.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF92400E)
                         )
@@ -1699,18 +2025,31 @@ fun DailyTaskRunnerCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = colorScheme.outlineVariant)
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // BIG MILK QUANTITY CONTROL
-            Text(
-                text = "DELIVERY MILK (लीटर)",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = colorScheme.onSurfaceVariant,
-                letterSpacing = 0.5.sp
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { onMilkEditClicked() }
+                ) {
+                    Text(
+                        text = "DELIVERY MILK (लीटर)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.onSurfaceVariant,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.Edit, contentDescription = "Edit Milk", tint = colorScheme.primary, modifier = Modifier.size(12.dp))
+                }
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1724,7 +2063,7 @@ fun DailyTaskRunnerCard(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     suffix = { Text("L", fontWeight = FontWeight.Bold, color = colorScheme.primary) },
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = colorScheme.onSurface
                     ),
@@ -1768,7 +2107,7 @@ fun DailyTaskRunnerCard(
                         .clickable { onUseSuggestedMilk(item.suggestedMilkFromCash) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -1777,13 +2116,13 @@ fun DailyTaskRunnerCard(
                                 item.suggestedMilkFromCash,
                                 item.applicableRate
                             ),
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary
                         )
                         Text(
                             text = "USE %.2f L ▶".format(item.suggestedMilkFromCash),
-                            fontSize = 11.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary
                         )
@@ -1791,42 +2130,64 @@ fun DailyTaskRunnerCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // BILL & CASH INPUT ROW
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Today's Bill Box (Clickable to override)
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .background(colorScheme.primaryContainer.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                        .padding(10.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colorScheme.primaryContainer.copy(alpha = 0.5f))
+                        .clickable { onBillEditClicked() }
+                        .padding(8.dp)
                 ) {
-                    Text("BILL TODAY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colorScheme.onPrimaryContainer)
-                    Text(CalculationEngine.formatMoney(item.todayBill), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                    Text("@ ₹%.0f/L".format(item.applicableRate), fontSize = 10.sp, color = colorScheme.onPrimaryContainer)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("BILL TODAY", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onPrimaryContainer)
+                        Icon(Icons.Default.Edit, contentDescription = "Override Bill", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
+                    }
+                    Text(CalculationEngine.formatMoney(item.todayBill), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    Text("@ ₹%.0f/L".format(item.applicableRate), fontSize = 9.5.sp, color = colorScheme.onPrimaryContainer)
                 }
 
+                // Prev Due Box (Clickable to reconcile)
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .background(colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
-                        .padding(10.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colorScheme.surfaceContainer)
+                        .border(0.5.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                        .clickable { onDueEditClicked() }
+                        .padding(8.dp)
                 ) {
-                    Text("PREV DUE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("PREV DUE", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                        Icon(Icons.Default.Edit, contentDescription = "Reconcile Due", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
+                    }
                     Text(
                         CalculationEngine.formatMoney(item.prevDue),
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (item.prevDue > 0) StatusRed else colorScheme.onSurface
                     )
-                    Text("Total: ${CalculationEngine.formatMoney(item.totalRequired)}", fontSize = 10.sp, color = colorScheme.onSurfaceVariant)
+                    Text("Total: ${CalculationEngine.formatMoney(item.totalRequired)}", fontSize = 9.5.sp, color = colorScheme.onSurfaceVariant)
                 }
 
+                // CASH RECEIVED
                 Column(modifier = Modifier.weight(1.2f)) {
-                    Text("CASH RECEIVED (₹)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    Text("CASH RECEIVED (₹)", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
                     OutlinedTextField(
                         value = item.currentCashInput,
                         onValueChange = onCashChanged,
@@ -1834,7 +2195,7 @@ fun DailyTaskRunnerCard(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = 18.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary
                         ),
@@ -1845,7 +2206,7 @@ fun DailyTaskRunnerCard(
             }
 
             // NET DUE / ADVANCE & PBS ROW
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1855,19 +2216,33 @@ fun DailyTaskRunnerCard(
                         else if (item.remainingDue > 0) colorScheme.errorContainer.copy(alpha = 0.4f)
                         else colorScheme.surfaceContainer
                     )
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (item.advance > 0) {
-                    Text(text = "Advance Balance:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
-                    Text(text = CalculationEngine.formatMoney(item.advance), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onAdvanceEditClicked() }
+                    ) {
+                        Text(text = "Advance: ", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
+                        Text(text = CalculationEngine.formatMoney(item.advance), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Edit Advance", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
+                    }
                 } else if (item.remainingDue > 0) {
-                    Text(text = "Remaining Due (बकाया):", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.error)
-                    Text(text = CalculationEngine.formatMoney(item.remainingDue), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = colorScheme.error)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onDueEditClicked() }
+                    ) {
+                        Text(text = "Remaining Due: ", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.error)
+                        Text(text = CalculationEngine.formatMoney(item.remainingDue), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.error)
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Icon(Icons.Default.Edit, contentDescription = "Reconcile Due", tint = colorScheme.error, modifier = Modifier.size(10.dp))
+                    }
                 } else {
-                    Text(text = "Balance:", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
-                    Text(text = "₹0 (Cleared ✓)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    Text(text = "Balance:", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
+                    Text(text = "₹0 (Cleared ✓)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
                 }
 
                 Row(
@@ -1876,7 +2251,7 @@ fun DailyTaskRunnerCard(
                 ) {
                     Text(
                         text = "PBS: ${CalculationEngine.formatMoney(item.pbsPending)}",
-                        fontSize = 11.5.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFC2410C)
                     )
@@ -1885,22 +2260,22 @@ fun DailyTaskRunnerCard(
                         imageVector = Icons.Default.Edit,
                         contentDescription = "Edit PBS",
                         tint = colorScheme.primary,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(11.dp)
                     )
                 }
             }
 
             // ONE-TAP QUICK PAYMENT RECONCILIATION ROW (Runner Mode)
             if (item.prevDue > 0) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "⚡ Quick Pay:",
-                        fontSize = 11.sp,
+                        text = "⚡ Quick:",
+                        fontSize = 10.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = colorScheme.primary
                     )
@@ -1911,10 +2286,10 @@ fun DailyTaskRunnerCard(
                     ) {
                         Text(
                             text = "Pay Full ₹%.0f".format(item.prevDue),
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
                     if (item.prevDue >= 100.0) {
@@ -1925,10 +2300,10 @@ fun DailyTaskRunnerCard(
                         ) {
                             Text(
                                 text = "Pay ₹100",
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                             )
                         }
                     }
@@ -1940,45 +2315,17 @@ fun DailyTaskRunnerCard(
                         ) {
                             Text(
                                 text = "Pay ₹500",
-                                fontSize = 11.sp,
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // KHATA & NOTES QUICK ACCESS BUTTONS (Runner Mode)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onKhataClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp)
-                ) {
-                    Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Khata", fontSize = 12.sp)
-                }
-
-                OutlinedButton(
-                    onClick = onNotesClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp)
-                ) {
-                    Icon(Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (item.notesCount > 0) "Notes (${item.notesCount})" else "Notes", fontSize = 12.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // PRIMARY DELIVER & SAVE BUTTON
             Button(
@@ -1989,13 +2336,59 @@ fun DailyTaskRunnerCard(
                     .fillMaxWidth()
                     .height(48.dp)
             ) {
-                Icon(Icons.Default.Check, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = if (item.isDone) "SAVED ✓ (UPDATE)" else "DELIVER & SAVE",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // RUNNER DELIVERY STATUS ROW (Naga, Alternate, Undo)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onNagaClicked,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (item.isNaga) Color.White else colorScheme.error,
+                        containerColor = if (item.isNaga) colorScheme.error else Color.Transparent
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                ) {
+                    Text(if (item.isNaga) "NAGA ✓" else "Naga", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = onAlternateClicked,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (item.isAlternateOff) Color.White else Color(0xFFD97706),
+                        containerColor = if (item.isAlternateOff) Color(0xFFD97706) else Color.Transparent
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                ) {
+                    Text(if (item.isAlternateOff) "ALT OFF ✓" else "Alternate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = onUndoClicked,
+                    enabled = item.isDone || item.isNaga,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                ) {
+                    Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("Undo", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -2008,27 +2401,23 @@ fun DailyTaskRunnerCard(
                 OutlinedButton(
                     onClick = onPrev,
                     enabled = currentIndex > 0,
-                    modifier = Modifier.weight(1f)
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp)
                 ) {
-                    Icon(Icons.Default.ChevronLeft, contentDescription = null)
-                    Text("Previous")
-                }
-
-                OutlinedButton(
-                    onClick = onNagaClicked,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.error),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Naga (Skip)")
+                    Icon(Icons.Default.ChevronLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Previous", fontSize = 12.sp)
                 }
 
                 OutlinedButton(
                     onClick = onNext,
                     enabled = currentIndex < totalCount - 1,
-                    modifier = Modifier.weight(1f)
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(38.dp)
                 ) {
-                    Text("Next")
-                    Icon(Icons.Default.ChevronRight, contentDescription = null)
+                    Text("Next", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -2900,5 +3289,1019 @@ fun RouteManagerDialog(
         }
     )
 }
+
+// ===========================================================================
+// V7.6 DIALOG COMPOSABLES (Auditability, In-Place Edits, Runner Cash)
+// ===========================================================================
+
+// 1. EDIT CUSTOMER MASTER DIALOG
+@Composable
+fun EditCustomerMasterDialog(
+    customer: CustomerEntity,
+    onDismiss: () -> Unit,
+    onSave: (CustomerEntity) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var name by remember { mutableStateOf(customer.name) }
+    var phone by remember { mutableStateOf(customer.phone) }
+    var mohalla by remember { mutableStateOf(customer.mohalla) }
+    var landmark by remember { mutableStateOf(customer.landmark) }
+    var milkType by remember { mutableStateOf(customer.milkType) }
+    var defaultLitersText by remember { mutableStateOf(customer.defaultLiters.toString()) }
+    var rateText by remember { mutableStateOf(customer.ratePerLiter.toString()) }
+    var billingType by remember { mutableStateOf(customer.billingType) }
+    var deliveryFrequency by remember { mutableStateOf(customer.deliveryFrequency) }
+    var isActive by remember { mutableStateOf(customer.isActive == 1) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = "Edit Customer Master",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+                Text(
+                    text = "Customer ID: #${customer.id} (READ-ONLY)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colorScheme.primary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Customer Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = phone,
+                    onValueChange = { phone = it },
+                    label = { Text("Phone Number") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = mohalla,
+                        onValueChange = { mohalla = it },
+                        label = { Text("Mohalla") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = landmark,
+                        onValueChange = { landmark = it },
+                        label = { Text("Landmark") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Text("Milk Type:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Buffalo", "Cow", "Mix").forEach { m ->
+                        FilterChip(
+                            selected = milkType.equals(m, ignoreCase = true),
+                            onClick = { milkType = m },
+                            label = { Text(m, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = defaultLitersText,
+                        onValueChange = { defaultLitersText = it },
+                        label = { Text("Default Liters") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = rateText,
+                        onValueChange = { rateText = it },
+                        label = { Text("Rate / Liter (₹)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Text("Billing Type:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("daily_cash" to "Daily Cash", "monthly_khata" to "Monthly Khata").forEach { (type, label) ->
+                        FilterChip(
+                            selected = billingType == type,
+                            onClick = { billingType = type },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Text("Frequency:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("daily" to "Daily", "alternate" to "Alternate").forEach { (freq, label) ->
+                        FilterChip(
+                            selected = deliveryFrequency == freq,
+                            onClick = { deliveryFrequency = freq },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Customer Active Status", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Switch(
+                        checked = isActive,
+                        onCheckedChange = { isActive = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.primary)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val updated = customer.copy(
+                        name = name.trim().ifBlank { customer.name },
+                        phone = phone.trim(),
+                        mohalla = mohalla.trim().ifBlank { customer.mohalla },
+                        landmark = landmark.trim(),
+                        milkType = milkType,
+                        defaultLiters = defaultLitersText.toDoubleOrNull() ?: customer.defaultLiters,
+                        ratePerLiter = rateText.toDoubleOrNull() ?: customer.ratePerLiter,
+                        billingType = billingType,
+                        deliveryFrequency = deliveryFrequency,
+                        isActive = if (isActive) 1 else 0
+                    )
+                    onSave(updated)
+                }
+            ) {
+                Text("Save Changes")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+// 2. RECONCILE DUE DIALOG
+@Composable
+fun ReconcileDueDialog(
+    item: DailyCustomerCardItem,
+    onDismiss: () -> Unit,
+    onConfirm: (targetDue: Double, note: String) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var targetDueText by remember { mutableStateOf("") }
+    var noteText by remember { mutableStateOf("") }
+
+    val currentDue = item.remainingDue
+    val targetDue = targetDueText.toDoubleOrNull() ?: 0.0
+    val deltaAdjustment = CalculationEngine.round2(currentDue - targetDue)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Reconcile / Correct Due", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Customer #${item.customer.id}: ${item.customer.name}",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Current Due: ${CalculationEngine.formatMoney(currentDue)}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentDue > 0) colorScheme.error else colorScheme.onSurface
+                        )
+                        if (targetDueText.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Target Due: ${CalculationEngine.formatMoney(targetDue)}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colorScheme.primary
+                            )
+                            Text(
+                                text = "Adjustment Record: ${if (deltaAdjustment >= 0) "-${CalculationEngine.formatMoney(deltaAdjustment)}" else "+${CalculationEngine.formatMoney(-deltaAdjustment)}"}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (deltaAdjustment >= 0) colorScheme.primary else Color(0xFFD97706)
+                            )
+                        }
+                    }
+                }
+
+                Text("Quick Options:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.primaryContainer,
+                        modifier = Modifier.clickable { targetDueText = "0" }
+                    ) {
+                        Text(
+                            text = "Set to ₹0 (Cleared)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+
+                    if (currentDue > 100.0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable {
+                                targetDueText = "%.0f".format(Locale.US, currentDue - 100.0)
+                            }
+                        ) {
+                            Text(
+                                text = "Reduce ₹100",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = targetDueText,
+                    onValueChange = { targetDueText = it },
+                    label = { Text("Target Due Amount (₹)") },
+                    placeholder = { Text("e.g. 0 or 250") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    label = { Text("Reason / Audit Note") },
+                    placeholder = { Text("e.g. Settled offline / correction") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text(
+                    text = "• Note: An auditable correction record will be written to customer Khata. History is preserved.",
+                    fontSize = 10.5.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(targetDue, noteText.trim())
+                },
+                enabled = targetDueText.isNotBlank()
+            ) {
+                Text("Confirm Reconcile")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+// 3. ADJUST ADVANCE DIALOG
+@Composable
+fun AdjustAdvanceDialog(
+    item: DailyCustomerCardItem,
+    onDismiss: () -> Unit,
+    onConfirm: (targetAdvance: Double, note: String) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var targetAdvanceText by remember { mutableStateOf("") }
+    var noteText by remember { mutableStateOf("") }
+
+    val currentAdvance = item.advance
+    val targetAdvance = targetAdvanceText.toDoubleOrNull() ?: 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Adjust Advance Balance", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Customer #${item.customer.id}: ${item.customer.name}",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Current Advance: ${CalculationEngine.formatMoney(currentAdvance)}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.clickable { targetAdvanceText = "0" }
+                    ) {
+                        Text(
+                            text = "Set to ₹0",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.clickable {
+                            targetAdvanceText = "%.0f".format(Locale.US, currentAdvance + 100.0)
+                        }
+                    ) {
+                        Text(
+                            text = "+₹100",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.clickable {
+                            targetAdvanceText = "%.0f".format(Locale.US, currentAdvance + 500.0)
+                        }
+                    ) {
+                        Text(
+                            text = "+₹500",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = targetAdvanceText,
+                    onValueChange = { targetAdvanceText = it },
+                    label = { Text("New Advance Amount (₹)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    label = { Text("Reason / Note") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(targetAdvance, noteText.trim()) },
+                enabled = targetAdvanceText.isNotBlank()
+            ) {
+                Text("Save Advance")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// 4. OVERRIDE BILL DIALOG
+@Composable
+fun OverrideBillDialog(
+    item: DailyCustomerCardItem,
+    onDismiss: () -> Unit,
+    onConfirm: (customBill: Double?, customCash: Double?) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val liters = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+    val rate = item.applicableRate
+    val calcBill = CalculationEngine.round2(liters * rate)
+
+    var manualBillText by remember { mutableStateOf(calcBill.toString()) }
+    var cashText by remember { mutableStateOf(item.currentCashInput) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Override Today's Bill", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Customer #${item.customer.id}: ${item.customer.name}",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Calculated Bill: %.2f L × ₹%.0f/L = %s".format(
+                                liters,
+                                rate,
+                                CalculationEngine.formatMoney(calcBill)
+                            ),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colorScheme.onSurface
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = manualBillText,
+                    onValueChange = { manualBillText = it },
+                    label = { Text("Manual Override Bill (₹)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = cashText,
+                    onValueChange = { cashText = it },
+                    label = { Text("Cash Received (₹)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                val enteredBill = manualBillText.toDoubleOrNull()
+                if (enteredBill != null && enteredBill != calcBill) {
+                    Text(
+                        text = "⚠️ Manual bill differs from standard calculation. Difference will be logged in audit notes.",
+                        fontSize = 11.sp,
+                        color = Color(0xFFD97706),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val finalBill = manualBillText.toDoubleOrNull()
+                    val finalCash = cashText.toDoubleOrNull()
+                    onConfirm(finalBill, finalCash)
+                }
+            ) {
+                Text("Apply Bill")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// 5. MILK NUMERIC EDITOR DIALOG
+@Composable
+fun MilkEditorDialog(
+    item: DailyCustomerCardItem,
+    onDismiss: () -> Unit,
+    onSave: (Double) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var litersText by remember { mutableStateOf(item.currentMilkInput) }
+    val currentLiters = litersText.toDoubleOrNull() ?: item.customer.defaultLiters
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Select Milk Quantity", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Customer #${item.customer.id}: ${item.customer.name} (@ ₹%.0f/L)".format(item.applicableRate),
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Steppers Row
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = {
+                            val next = (currentLiters - 0.5).coerceAtLeast(0.0)
+                            litersText = "%.2f".format(Locale.US, next)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("-0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            val next = currentLiters + 0.5
+                            litersText = "%.2f".format(Locale.US, next)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("+0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            val next = currentLiters + 1.0
+                            litersText = "%.2f".format(Locale.US, next)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("+1.0L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                // Preset Chips Grid
+                Text("Presets:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                val presets = listOf(1.0, 1.5, 2.0, 2.25, 2.50, 2.75, 3.0, 4.0, 5.0)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    presets.forEach { p ->
+                        FilterChip(
+                            selected = "%.2f".format(Locale.US, currentLiters) == "%.2f".format(Locale.US, p),
+                            onClick = { litersText = "%.2f".format(Locale.US, p) },
+                            label = { Text("%.2f L".format(p), fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                // Direct Decimal Input
+                OutlinedTextField(
+                    value = litersText,
+                    onValueChange = { litersText = it },
+                    label = { Text("Exact Quantity (Liters)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    suffix = { Text("L", fontWeight = FontWeight.Bold, color = colorScheme.primary) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                val billEst = CalculationEngine.round2(currentLiters * item.applicableRate)
+                Text(
+                    text = "Estimated Bill: ${CalculationEngine.formatMoney(billEst)}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.primary
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(currentLiters) }
+            ) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// 6. PBS / MANUAL BOOK MANAGER DIALOG (With Full Audit History)
+@Composable
+fun PbsManagerDialog(
+    item: DailyCustomerCardItem,
+    viewModel: DailyTaskViewModel,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Adjust, 1 = History
+    var amountText by remember { mutableStateOf(if (item.pbsPending > 0) "%.0f".format(Locale.US, item.pbsPending) else "") }
+    var reasonText by remember { mutableStateOf("") }
+    var historyItems by remember { mutableStateOf<List<PbsHistoryItem>>(emptyList()) }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 1) {
+            historyItems = viewModel.getPbsHistory(item.customer.id)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("PBS / External Book Manager", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Customer #${item.customer.id}: ${item.customer.name} (Current: ${CalculationEngine.formatMoney(item.pbsPending)})",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Tab Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colorScheme.surfaceContainerHigh)
+                        .padding(2.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (selectedTab == 0) colorScheme.primary else Color.Transparent,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { selectedTab = 0 }
+                    ) {
+                        Text(
+                            text = "Edit / Adjust",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selectedTab == 0) colorScheme.onPrimary else colorScheme.onSurface,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (selectedTab == 1) colorScheme.primary else Color.Transparent,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { selectedTab = 1 }
+                    ) {
+                        Text(
+                            text = "Audit History",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (selectedTab == 1) colorScheme.onPrimary else colorScheme.onSurface,
+                            modifier = Modifier.padding(vertical = 6.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+
+                if (selectedTab == 0) {
+                    // Quick Set Chips
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable { amountText = "0" }
+                        ) {
+                            Text("Clear to ₹0", fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable {
+                                val curr = amountText.toDoubleOrNull() ?: item.pbsPending
+                                amountText = "%.0f".format(Locale.US, (curr - 100.0).coerceAtLeast(0.0))
+                            }
+                        ) {
+                            Text("-₹100", fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.clickable {
+                                val curr = amountText.toDoubleOrNull() ?: item.pbsPending
+                                amountText = "%.0f".format(Locale.US, curr + 100.0)
+                            }
+                        ) {
+                            Text("+₹100", fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { amountText = it },
+                        label = { Text("PBS Pending Amount (₹)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = reasonText,
+                        onValueChange = { reasonText = it },
+                        label = { Text("Reason / Note for Change") },
+                        placeholder = { Text("e.g. Copied from paper diary / Paid in cash") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    val newAmt = amountText.toDoubleOrNull() ?: 0.0
+                    val delta = newAmt - item.pbsPending
+                    if (delta != 0.0) {
+                        Text(
+                            text = "Adjustment Delta: ${if (delta > 0) "+₹%.0f".format(delta) else "-₹%.0f".format(-delta)}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (delta > 0) Color(0xFFD97706) else colorScheme.primary
+                        )
+                    }
+                } else {
+                    // History List
+                    if (historyItems.isEmpty()) {
+                        Text(
+                            text = "No recorded adjustments for this customer yet.",
+                            fontSize = 12.sp,
+                            color = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        historyItems.forEach { h ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(h.timestamp, fontSize = 10.5.sp, color = colorScheme.onSurfaceVariant)
+                                        Text(
+                                            text = if (h.delta >= 0) "+₹%.0f".format(h.delta) else "-₹%.0f".format(-h.delta),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (h.delta >= 0) Color(0xFFD97706) else colorScheme.primary
+                                        )
+                                    }
+                                    Text(
+                                        text = "₹%.0f ➔ ₹%.0f".format(h.oldAmount, h.newAmount),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (h.reason.isNotBlank()) {
+                                        Text(text = "Note: ${h.reason}", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (selectedTab == 0) {
+                Button(
+                    onClick = {
+                        val newAmount = amountText.toDoubleOrNull() ?: 0.0
+                        viewModel.updatePbsWithHistory(
+                            customerId = item.customer.id,
+                            currentAmt = item.pbsPending,
+                            newAmt = newAmount,
+                            reason = reasonText.trim()
+                        ) {
+                            onDismiss()
+                        }
+                    }
+                ) {
+                    Text("Save Adjustment")
+                }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+        dismissButton = {
+            if (selectedTab == 0) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
+}
+
+// 7. RUNNER CASH RECEIPT CONFIRMATION DIALOG
+@Composable
+fun RunnerCashConfirmDialog(
+    item: DailyCustomerCardItem,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val liters = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+    val rate = item.applicableRate
+    val bill = CalculationEngine.round2(liters * rate)
+    val cash = item.currentCashInput.toDoubleOrNull() ?: 0.0
+    val totalReq = CalculationEngine.round2(bill + item.prevDue)
+    val net = CalculationEngine.round2(totalReq - cash)
+    val newDue = if (net > 0) net else 0.0
+    val advance = if (net < 0) CalculationEngine.round2(-net) else 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Confirm Delivery & Cash",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "#${item.routeIndex + 1} ${item.customer.name}",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.primary
+                )
+                Text(
+                    text = "${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}",
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Delivery Milk:", fontSize = 12.5.sp, color = colorScheme.onSurfaceVariant)
+                            Text("%.2f L (@ ₹%.0f/L)".format(liters, rate), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Today's Bill:", fontSize = 12.5.sp, color = colorScheme.onSurfaceVariant)
+                            Text(CalculationEngine.formatMoney(bill), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Previous Due:", fontSize = 12.5.sp, color = colorScheme.onSurfaceVariant)
+                            Text(CalculationEngine.formatMoney(item.prevDue), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Total Required:", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(CalculationEngine.formatMoney(totalReq), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("CASH RECEIVED:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                            Text(
+                                text = CalculationEngine.formatMoney(cash),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (advance > 0) "Advance Balance:" else "Remaining Due:",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (advance > 0) colorScheme.primary else colorScheme.error
+                            )
+                            Text(
+                                text = CalculationEngine.formatMoney(if (advance > 0) advance else newDue),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (advance > 0) colorScheme.primary else colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("CONFIRM & SAVE RECEIPT", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Go Back")
+            }
+        }
+    )
+}
+
 
 

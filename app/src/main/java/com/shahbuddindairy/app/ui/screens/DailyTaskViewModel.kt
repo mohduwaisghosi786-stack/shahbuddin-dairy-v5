@@ -19,9 +19,20 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class PbsHistoryItem(
+    val timestamp: String,
+    val oldAmount: Double,
+    val newAmount: Double,
+    val delta: Double,
+    val reason: String
+)
 
 enum class DailyFilter {
     ALL,
@@ -687,6 +698,43 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun markAlternate(item: DailyCustomerCardItem, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val date = _selectedDate.value
+            val existing = repository.getDeliveryForCustomerAndDate(item.customer.id, date)
+            val deliveryId = existing?.id ?: item.delivery?.id ?: "d_${date}_${item.customer.id}"
+            val delivery = DeliveryEntity(
+                id = deliveryId,
+                customerId = item.customer.id,
+                date = date,
+                deliveryTime = "",
+                milkType = item.customer.milkType,
+                liters = 0.0,
+                rate = item.applicableRate,
+                totalAmount = 0.0,
+                paidCash = 0.0,
+                paidOnline = 0.0,
+                totalPaid = 0.0,
+                status = "skipped",
+                note = "Alternate Day Off",
+                isVoid = false
+            )
+            repository.saveDelivery(delivery)
+
+            val q = _quantities.value.toMutableMap()
+            q.remove(item.customer.id)
+            _quantities.value = q
+
+            val c = _cashInputs.value.toMutableMap()
+            c.remove(item.customer.id)
+            _cashInputs.value = c
+
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+
     // Route order saving: updates routeOrder column for all customers without touching customerId
     fun saveRouteOrder(reorderedCustomers: List<CustomerEntity>, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
@@ -786,6 +834,206 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             repository.savePayment(payment)
             _refreshTrigger.value++
             onSuccess?.invoke()
+        }
+    }
+
+    // Auditable Due Reconciliation (Section 8, 13, 14)
+    fun recordDueAdjustment(
+        customerId: Long,
+        currentBalance: Double,
+        targetDue: Double,
+        mode: String = "Adjustment",
+        note: String = "",
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val delta = CalculationEngine.round2(currentBalance - targetDue)
+            if (delta != 0.0) {
+                val id = "adj_${System.currentTimeMillis()}_$customerId"
+                val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                val payment = PaymentEntity(
+                    id = id,
+                    customerId = customerId,
+                    date = _selectedDate.value,
+                    amount = delta,
+                    paymentMode = mode,
+                    paymentSubtype = "Settlement",
+                    note = note.ifBlank { "Reconciliation: Due ₹${CalculationEngine.formatMoney(currentBalance)} -> ₹${CalculationEngine.formatMoney(targetDue)}" },
+                    createdAt = nowStr,
+                    isVoid = false
+                )
+                repository.savePayment(payment)
+            }
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // Auditable Advance Adjustment (Section 15)
+    fun recordAdvanceAdjustment(
+        customerId: Long,
+        currentAdvance: Double,
+        targetAdvance: Double,
+        mode: String = "AdvanceAdjustment",
+        note: String = "",
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val delta = CalculationEngine.round2(targetAdvance - currentAdvance)
+            if (delta != 0.0) {
+                val id = "adv_${System.currentTimeMillis()}_$customerId"
+                val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                val payment = PaymentEntity(
+                    id = id,
+                    customerId = customerId,
+                    date = _selectedDate.value,
+                    amount = delta,
+                    paymentMode = mode,
+                    paymentSubtype = "Advance",
+                    note = note.ifBlank { "Advance Adjusted: ₹${CalculationEngine.formatMoney(currentAdvance)} -> ₹${CalculationEngine.formatMoney(targetAdvance)}" },
+                    createdAt = nowStr,
+                    isVoid = false
+                )
+                repository.savePayment(payment)
+            }
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // Direct Customer Master Update (Section 13, 34)
+    fun updateCustomerMaster(customer: CustomerEntity, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.saveCustomer(customer)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // Manual Bill Override Delivery Save (Section 19)
+    fun saveDeliveryWithCustomBill(
+        item: DailyCustomerCardItem,
+        customBill: Double?,
+        customCash: Double?,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val date = _selectedDate.value
+            val liters = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+            val rate = item.applicableRate
+            val calcBill = CalculationEngine.round2(liters * rate)
+            val finalBill = customBill ?: calcBill
+            val cash = customCash ?: (item.currentCashInput.toDoubleOrNull() ?: 0.0)
+
+            val now = Date()
+            val timeStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(now)
+
+            val existing = repository.getDeliveryForCustomerAndDate(item.customer.id, date)
+            val deliveryId = existing?.id ?: item.delivery?.id ?: "d_${date}_${item.customer.id}"
+
+            val note = if (customBill != null && customBill != calcBill) {
+                "Manual Bill Override: ₹$customBill (Calc: ₹$calcBill)"
+            } else "Daily Delivery"
+
+            val delivery = DeliveryEntity(
+                id = deliveryId,
+                customerId = item.customer.id,
+                date = date,
+                deliveryTime = timeStr,
+                milkType = item.customer.milkType,
+                liters = liters,
+                rate = rate,
+                totalAmount = finalBill,
+                paidCash = cash,
+                paidOnline = 0.0,
+                totalPaid = cash,
+                status = "delivered",
+                note = note,
+                isVoid = false
+            )
+
+            repository.saveDelivery(delivery)
+
+            val q = _quantities.value.toMutableMap()
+            q.remove(item.customer.id)
+            _quantities.value = q
+
+            val c = _cashInputs.value.toMutableMap()
+            c.remove(item.customer.id)
+            _cashInputs.value = c
+
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // Safe Undo of Last Delivery Action (Section 21)
+    fun undoLastDeliveryAction(customerId: Long, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val date = _selectedDate.value
+            val existing = repository.getDeliveryForCustomerAndDate(customerId, date)
+            if (existing != null && !existing.isVoid) {
+                repository.voidDelivery(existing.id)
+            }
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    // PBS / PBSBO with Audit History (Section 33)
+    fun updatePbsWithHistory(
+        customerId: Long,
+        currentAmt: Double,
+        newAmt: Double,
+        reason: String,
+        onSuccess: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            repository.setPbsPending(customerId, newAmt)
+            val existingJson = repository.getSetting("pbs_history_$customerId") ?: "[]"
+            val nowStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.US).format(Date())
+            val delta = CalculationEngine.round2(newAmt - currentAmt)
+            val newEntry = JsonObject().apply {
+                addProperty("timestamp", nowStr)
+                addProperty("oldAmount", currentAmt)
+                addProperty("newAmount", newAmt)
+                addProperty("delta", delta)
+                addProperty("reason", reason.ifBlank { "PBS Adjustment" })
+            }
+            val array = try {
+                Gson().fromJson(existingJson, JsonArray::class.java) ?: JsonArray()
+            } catch (e: Exception) {
+                JsonArray()
+            }
+            array.add(newEntry)
+            repository.setSetting("pbs_history_$customerId", array.toString())
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
+    suspend fun getPbsHistory(customerId: Long): List<PbsHistoryItem> {
+        val rawJson = repository.getSetting("pbs_history_$customerId") ?: return emptyList()
+        return try {
+            val list = mutableListOf<PbsHistoryItem>()
+            val array = Gson().fromJson(rawJson, JsonArray::class.java) ?: return emptyList()
+            for (elem in array) {
+                if (elem.isJsonObject) {
+                    val obj = elem.asJsonObject
+                    list.add(
+                        PbsHistoryItem(
+                            timestamp = obj.get("timestamp")?.asString ?: "",
+                            oldAmount = obj.get("oldAmount")?.asDouble ?: 0.0,
+                            newAmount = obj.get("newAmount")?.asDouble ?: 0.0,
+                            delta = obj.get("delta")?.asDouble ?: 0.0,
+                            reason = obj.get("reason")?.asString ?: ""
+                        )
+                    )
+                }
+            }
+            list.reversed()
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 }

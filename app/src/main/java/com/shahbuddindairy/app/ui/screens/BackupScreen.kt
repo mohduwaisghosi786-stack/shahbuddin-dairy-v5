@@ -643,7 +643,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Shahbuddin Dairy V7.5",
+                    text = "Shahbuddin Dairy V7.6",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = colorScheme.primary

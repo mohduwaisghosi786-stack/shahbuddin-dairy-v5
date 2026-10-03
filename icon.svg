@@ -14,19 +14,38 @@
       <stop offset="0" stop-color="#FFFFFF"/>
       <stop offset="1" stop-color="#DDEEE9"/>
     </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
   </defs>
+
+  <!-- Background & Gold Border -->
   <rect width="512" height="512" rx="112" fill="url(#bg)"/>
-  <rect x="15" y="15" width="482" height="482" rx="100" fill="none" stroke="url(#gold)" stroke-width="10"/>
-  <g fill="none" stroke="url(#milk)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M352 208 C352 180 308 166 258 166 C202 166 170 188 170 224 C170 262 220 268 268 274 C320 280 354 294 354 326 C354 364 304 382 252 382 C202 382 172 366 164 336"/>
-    <path d="M180 166 L180 382"/>
-    <path d="M180 166 L246 166 C334 166 366 208 366 272 C366 336 334 382 246 382 L180 382"/>
+  <rect x="18" y="18" width="476" height="476" rx="96" fill="none" stroke="url(#gold)" stroke-width="10"/>
+
+  <!-- S D (Milk Gradient Path - Side by Side, No Overlap) -->
+  <g fill="none" stroke="url(#milk)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)">
+    <!-- Letter S (Left) -->
+    <path d="M226 165 C226 132 192 118 152 118 C108 118 82 138 82 170 C82 206 122 214 160 222 C202 230 230 244 230 280 C230 316 196 336 150 336 C108 336 82 318 76 290"/>
+    
+    <!-- Letter D (Right) -->
+    <path d="M286 118 L348 118 C412 118 442 158 442 227 C442 296 412 336 348 336 L286 336 Z"/>
   </g>
-  <g fill="none" stroke="url(#gold)" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M152 424 L152 486 L172 486 C196 486 196 424 172 424 Z"/>
-    <path d="M206 486 L224 424 L242 486 M212 464 L236 464"/>
-    <path d="M260 424 L260 486"/>
-    <path d="M286 486 L286 424 L308 424 C327 424 327 452 308 452 L286 452 M308 452 L330 486"/>
-    <path d="M350 424 L366 456 L382 424 M366 456 L366 486"/>
+
+  <!-- Gold Divider Line -->
+  <line x1="120" y1="382" x2="392" y2="382" stroke="url(#gold)" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- DAIRY (Clean Geometric Vector Paths) -->
+  <g fill="none" stroke="url(#gold)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <!-- D -->
+    <path d="M116 414 L142 414 C166 414 178 426 178 445 C178 464 166 476 142 476 L116 476 Z"/>
+    <!-- A -->
+    <path d="M198 476 L224 414 L250 476 M207 456 L241 456"/>
+    <!-- I -->
+    <path d="M276 414 L276 476"/>
+    <!-- R -->
+    <path d="M306 476 L306 414 L334 414 C352 414 352 444 334 444 L306 444 M330 444 L352 476"/>
+    <!-- Y -->
+    <path d="M374 414 L398 446 L422 414 M398 446 L398 476"/>
   </g>
 </svg>

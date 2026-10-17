@@ -80,7 +80,14 @@ data class DailyCustomerCardItem(
     val pinnedNote: String? = null,
     val notesCount: Int = 0,
     val routeId: String = "default",
-    val routeName: String = "Main Route"
+    val routeName: String = "Main Route",
+    val yesterdayDeliveredLiters: Double? = null,
+    val yesterdayBill: Double? = null,
+    val yesterdayPaidCash: Double? = null,
+    val yesterdayWasNaga: Boolean = false,
+    val paymentRiskAlert: String? = null,
+    val isHighPaymentRisk: Boolean = false,
+    val weeklyHistory: List<com.shahbuddindairy.app.ai.DayHistoryPoint> = emptyList()
 )
 
 data class DailyTaskUiState(
@@ -102,7 +109,11 @@ data class DailyTaskUiState(
     val selectedRouteId: String = "ALL",
     val routeProgress: RouteProgressInfo? = null,
     val motivationText: String = "",
-    val showMotivation: Boolean = true
+    val showMotivation: Boolean = true,
+    val loadedCanLiters: Double = 80.0,
+    val remainingCanLiters: Double = 80.0,
+    val isCanShortageWarning: Boolean = false,
+    val tomorrowDemand: com.shahbuddindairy.app.ai.DemandForecast? = null
 )
 
 class DailyTaskViewModel(application: Application) : AndroidViewModel(application) {
@@ -195,7 +206,8 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         val profiles: Map<Long, CustomerProfile>,
         val totalMarketDue: Double,
         val totalPbsPending: Double,
-        val routes: List<RouteEntity>
+        val routes: List<RouteEntity>,
+        val allDeliveries: List<DeliveryEntity> = emptyList()
     )
 
     // Cached base data flow: Queries DB ONLY when date, customers, pbs, or mutation trigger changes
@@ -262,7 +274,8 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 profiles = profileMap,
                 totalMarketDue = marketDue,
                 totalPbsPending = sumPbs,
-                routes = allRoutes
+                routes = allRoutes,
+                allDeliveries = allDeliveries
             )
         }
     }
@@ -384,6 +397,17 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 else if (!isAltOff && c.isActive == 1) routePending++
             }
 
+            // Yesterday Intelligence & 7-Day History
+            val yesterdayStr = CalculationEngine.prevDayStr(base.date)
+            val yDeliv = base.allDeliveries.find { it.customerId == c.id && it.date == yesterdayStr && !it.isVoid }
+            val yLiters = if (yDeliv != null && yDeliv.status == "delivered") yDeliv.liters else null
+            val yBill = if (yDeliv != null && yDeliv.status == "delivered") yDeliv.totalAmount else null
+            val yCash = if (yDeliv != null) yDeliv.paidCash else null
+            val yNaga = yDeliv?.status == "skipped"
+
+            val risk = com.shahbuddindairy.app.ai.DairyAiPredictor.evaluatePaymentRisk(c, remDue.coerceAtLeast(profile.currentBal), base.allDeliveries)
+            val weeklyHistory = com.shahbuddindairy.app.ai.DairyAiPredictor.get7DayHistory(c.id, base.date, base.allDeliveries)
+
             val item = DailyCustomerCardItem(
                 customer = c,
                 delivery = d,
@@ -409,7 +433,14 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 pinnedNote = profile.pinnedNote,
                 notesCount = profile.notesCount,
                 routeId = c.routeId,
-                routeName = rName
+                routeName = rName,
+                yesterdayDeliveredLiters = yLiters,
+                yesterdayBill = yBill,
+                yesterdayPaidCash = yCash,
+                yesterdayWasNaga = yNaga,
+                paymentRiskAlert = risk?.alertMessage,
+                isHighPaymentRisk = risk?.isHighRisk ?: false,
+                weeklyHistory = weeklyHistory
             )
 
             // Route filter check
@@ -463,6 +494,12 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             else -> "आज $completed/${completed + pending} पूरी • $pending बाकी • नकद ₹%,d".format(Locale.ENGLISH, sumCash.toLong())
         }
 
+        val tomorrowStr = CalculationEngine.nextDayStr(base.date)
+        val tomorrowForecast = com.shahbuddindairy.app.ai.DairyAiPredictor.forecastTomorrowDemand(base.customers, base.allDeliveries, tomorrowStr)
+        val loadedCan = 80.0
+        val remainingCan = (loadedCan - sumMilk).coerceAtLeast(0.0)
+        val isShortage = remainingCan < 10.0 && pending > 0
+
         DailyTaskUiState(
             selectedDate = base.date,
             searchQuery = query,
@@ -482,7 +519,11 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             selectedRouteId = routeFilter,
             routeProgress = progressInfo,
             motivationText = motiv,
-            showMotivation = showMotiv
+            showMotivation = showMotiv,
+            loadedCanLiters = loadedCan,
+            remainingCanLiters = CalculationEngine.round2(remainingCan),
+            isCanShortageWarning = isShortage,
+            tomorrowDemand = tomorrowForecast
         )
     }.stateIn(
         viewModelScope,
@@ -578,6 +619,17 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    // 1-Tap Quick Rate Update (₹70, ₹65, ₹60, Custom)
+    fun updateCustomerRate(customerId: Long, newRate: Double, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val cust = repository.getCustomerByIdDirect(customerId) ?: return@launch
+            val updated = cust.copy(ratePerLiter = newRate)
+            repository.saveCustomer(updated)
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
+
     // Route Management
     fun saveRoute(route: RouteEntity, onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
@@ -656,8 +708,8 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         _pendingConfirmItem.value = null
     }
 
-    fun confirmAndSaveTransaction(onSuccess: (() -> Unit)? = null) {
-        val item = _pendingConfirmItem.value ?: return
+    fun confirmAndSaveTransaction(itemToSave: DailyCustomerCardItem? = null, onSuccess: (() -> Unit)? = null) {
+        val item = itemToSave ?: _pendingConfirmItem.value ?: return
         viewModelScope.launch {
             val date = _selectedDate.value
             val liters = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
@@ -792,16 +844,17 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
     // Quick / Guest Customer addition with optional regular route retention
     fun addQuickCustomerAndDeliver(
         name: String,
-        milkType: String,
         liters: Double,
         rate: Double,
         cash: Double,
-        saveAsRegular: Boolean,
+        phone: String = "",
+        milkType: String = "भैंस",
+        saveAsRegular: Boolean = false,
         onSuccess: (() -> Unit)? = null
     ) {
         viewModelScope.launch {
             val nextId = repository.getNextCustomerId()
-            val displayName = name.ifBlank { "Quick Customer #$nextId" }
+            val displayName = name.ifBlank { "नकद ग्राहक #$nextId" }
             val today = _selectedDate.value
             val currentCustomers = repository.getAllActiveCustomersDirect()
             val maxRoute = currentCustomers.maxOfOrNull { it.routeOrder } ?: 0
@@ -809,9 +862,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             val newCustomer = CustomerEntity(
                 id = nextId,
                 name = displayName,
-                phone = "",
-                mohalla = "कटरा",
-                landmark = if (!saveAsRegular) "Guest" else "",
+                phone = phone,
+                mohalla = "नकद",
+                landmark = if (!saveAsRegular) "नकद/Guest" else "",
                 milkType = milkType,
                 defaultLiters = liters,
                 ratePerLiter = rate,
@@ -893,10 +946,12 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             if (delta != 0.0) {
                 val id = "adj_${System.currentTimeMillis()}_$customerId"
                 val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                // Record adjustment on previous day so calculatePrevDueBefore updates immediately on current screen
+                val adjDate = CalculationEngine.prevDayStr(_selectedDate.value)
                 val payment = PaymentEntity(
                     id = id,
                     customerId = customerId,
-                    date = _selectedDate.value,
+                    date = adjDate,
                     amount = delta,
                     paymentMode = mode,
                     paymentSubtype = "Settlement",
@@ -925,10 +980,12 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             if (delta != 0.0) {
                 val id = "adv_${System.currentTimeMillis()}_$customerId"
                 val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                // Record advance adjustment on previous day so calculatePrevDueBefore updates immediately on current screen
+                val adjDate = CalculationEngine.prevDayStr(_selectedDate.value)
                 val payment = PaymentEntity(
                     id = id,
                     customerId = customerId,
-                    date = _selectedDate.value,
+                    date = adjDate,
                     amount = delta,
                     paymentMode = mode,
                     paymentSubtype = "Advance",
@@ -1078,4 +1135,102 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             emptyList()
         }
     }
+
+    // AI Munshi Transaction Execution (100% Zero Data Loss, Safe Room DB commit)
+    fun executeAiMunshiCommand(
+        cmd: com.shahbuddindairy.app.ai.DairyAiMunshiCommand,
+        onSuccess: (() -> Unit)? = null,
+        onError: ((String) -> Unit)? = null
+    ) {
+        val cust = cmd.matchedCustomer
+        if (cust == null) {
+            onError?.invoke("ग्राहक नहीं चुना गया")
+            return
+        }
+
+        viewModelScope.launch {
+            val date = _selectedDate.value
+            val now = Date()
+            val timeStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(now)
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(now)
+
+            // 1. If Quick Payment Only (e.g. "Ramesh 500 jama kiye")
+            if (cmd.isQuickPaymentOnly && (cmd.cash ?: 0.0) > 0) {
+                val payment = PaymentEntity(
+                    id = "pay_ai_${System.currentTimeMillis()}_${cust.id}",
+                    customerId = cust.id,
+                    date = date,
+                    amount = cmd.cash ?: 0.0,
+                    paymentMode = "Cash",
+                    paymentSubtype = "AI Munshi Payment",
+                    note = "AI Munshi: ${cmd.rawText}",
+                    createdAt = nowStr,
+                    isVoid = false
+                )
+                repository.savePayment(payment)
+                _refreshTrigger.value++
+                onSuccess?.invoke()
+                return@launch
+            }
+
+            // 2. Delivery / Naga with Optional Cash
+            val existing = repository.getDeliveryForCustomerAndDate(cust.id, date)
+            val deliveryId = existing?.id ?: "d_${date}_${cust.id}"
+
+            val delivery = if (cmd.isNaga) {
+                DeliveryEntity(
+                    id = deliveryId,
+                    customerId = cust.id,
+                    date = date,
+                    deliveryTime = "",
+                    milkType = cust.milkType,
+                    liters = 0.0,
+                    rate = if (cust.ratePerLiter > 0) cust.ratePerLiter else 60.0,
+                    totalAmount = 0.0,
+                    paidCash = cmd.cash ?: 0.0,
+                    paidOnline = 0.0,
+                    totalPaid = cmd.cash ?: 0.0,
+                    status = "skipped",
+                    note = "AI Munshi: Naga (Skipped)",
+                    isVoid = false
+                )
+            } else {
+                val liters = cmd.liters ?: cust.defaultLiters
+                val rate = if (cust.ratePerLiter > 0) cust.ratePerLiter else 60.0
+                val bill = CalculationEngine.round2(liters * rate)
+                val cash = cmd.cash ?: 0.0
+                DeliveryEntity(
+                    id = deliveryId,
+                    customerId = cust.id,
+                    date = date,
+                    deliveryTime = timeStr,
+                    milkType = cust.milkType,
+                    liters = liters,
+                    rate = rate,
+                    totalAmount = bill,
+                    paidCash = cash,
+                    paidOnline = 0.0,
+                    totalPaid = cash,
+                    status = "delivered",
+                    note = "AI Munshi: ${cmd.rawText}",
+                    isVoid = false
+                )
+            }
+
+            repository.saveDelivery(delivery)
+
+            // Clean transient state if any
+            val q = _quantities.value.toMutableMap()
+            q.remove(cust.id)
+            _quantities.value = q
+
+            val c = _cashInputs.value.toMutableMap()
+            c.remove(cust.id)
+            _cashInputs.value = c
+
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
 }
+

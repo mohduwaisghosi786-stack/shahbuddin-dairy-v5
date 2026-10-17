@@ -258,26 +258,48 @@ object BackupManager {
                 if (name.isBlank()) {
                     return ValidationResult(false, "Invalid customer entry at index $i (blank name)")
                 }
+                val id = c.get("id")?.asLong ?: (i + 1L)
+                val phone = c.get("phone")?.asString ?: ""
+                val mohalla = c.get("mohalla")?.asString ?: "कटरा"
+                val landmark = c.get("landmark")?.asString ?: ""
+                val note = c.get("note")?.asString ?: ""
+                val milkType = (c.get("milkType") ?: c.get("milk_type"))?.asString ?: "भैंस"
+                val defaultLiters = (c.get("defaultLiters") ?: c.get("default_liters"))?.asDouble ?: 1.0
+                val ratePerLiter = (c.get("ratePerLiter") ?: c.get("rate_per_liter"))?.asDouble ?: 0.0
+                val billingTypeVal = (c.get("billingType") ?: c.get("billing_type"))?.asString
+                val billingType = if (billingTypeVal == "daily_cash") "daily_cash" else "monthly"
+                val delivFreqVal = (c.get("deliveryFrequency") ?: c.get("delivery_frequency"))?.asString
+                val deliveryFrequency = if (delivFreqVal == "alternate") "alternate" else "daily"
+                val freqAnchor = (c.get("frequencyAnchorDate") ?: c.get("frequency_anchor_date"))?.asString ?: ""
+                val isActiveVal = (c.get("isActive") ?: c.get("is_active"))?.asInt
+                val isActive = if (isActiveVal == 0) 0 else 1
+                val isArchivedVal = (c.get("isArchived") ?: c.get("is_archived"))?.asInt
+                val isArchived = if (isArchivedVal == 1) 1 else 0
+                val routeId = (c.get("routeId") ?: c.get("route_id"))?.asString ?: "default"
+                val routeOrder = (c.get("routeOrder") ?: c.get("route_order"))?.asInt ?: (i + 1)
+                val portionsJson = (c.get("portionsJson") ?: c.get("portions_json"))?.asString ?: "[]"
+                val createdAt = (c.get("createdAt") ?: c.get("created_at"))?.asString ?: ""
+
                 customers.add(
                     CustomerEntity(
-                        id = c.get("id")?.asLong ?: (i + 1L),
+                        id = id,
                         name = name,
-                        phone = c.get("phone")?.asString ?: "",
-                        mohalla = c.get("mohalla")?.asString ?: "कटरा",
-                        landmark = c.get("landmark")?.asString ?: "",
-                        note = c.get("note")?.asString ?: "",
-                        milkType = c.get("milk_type")?.asString ?: "भैंस",
-                        defaultLiters = c.get("default_liters")?.asDouble ?: 1.0,
-                        ratePerLiter = c.get("rate_per_liter")?.asDouble ?: 0.0,
-                        billingType = if (c.get("billing_type")?.asString == "daily_cash") "daily_cash" else "monthly",
-                        deliveryFrequency = if (c.get("delivery_frequency")?.asString == "alternate") "alternate" else "daily",
-                        frequencyAnchorDate = c.get("frequency_anchor_date")?.asString ?: "",
-                        isActive = if (c.get("is_active")?.asInt == 0) 0 else 1,
-                        isArchived = if (c.get("is_archived")?.asInt == 1) 1 else 0,
-                        routeId = c.get("route_id")?.asString ?: "default",
-                        routeOrder = c.get("route_order")?.asInt ?: (i + 1),
-                        portionsJson = c.get("portions_json")?.asString ?: "[]",
-                        createdAt = c.get("created_at")?.asString ?: ""
+                        phone = phone,
+                        mohalla = mohalla,
+                        landmark = landmark,
+                        note = note,
+                        milkType = milkType,
+                        defaultLiters = defaultLiters,
+                        ratePerLiter = ratePerLiter,
+                        billingType = billingType,
+                        deliveryFrequency = deliveryFrequency,
+                        frequencyAnchorDate = freqAnchor,
+                        isActive = isActive,
+                        isArchived = isArchived,
+                        routeId = routeId,
+                        routeOrder = routeOrder,
+                        portionsJson = portionsJson,
+                        createdAt = createdAt
                     )
                 )
             }
@@ -291,18 +313,27 @@ object BackupManager {
             if (delivArray != null) {
                 for (i in 0 until delivArray.size()) {
                     val d = delivArray.get(i).asJsonObject
-                    val cid = d.get("customer_id")?.asLong ?: continue
+                    val cid = (d.get("customerId") ?: d.get("customer_id"))?.asLong ?: continue
                     val cash = when {
+                        d.has("paidCash") && !d.get("paidCash").isJsonNull -> d.get("paidCash").asDouble
                         d.has("paid_cash") && !d.get("paid_cash").isJsonNull -> d.get("paid_cash").asDouble
                         d.has("paid_amount") && !d.get("paid_amount").isJsonNull -> d.get("paid_amount").asDouble
                         else -> 0.0
                     }
-                    val online = if (d.has("paid_online") && !d.get("paid_online").isJsonNull) d.get("paid_online").asDouble else 0.0
-                    val tp = if (d.has("total_paid") && !d.get("total_paid").isJsonNull) d.get("total_paid").asDouble else (cash + online)
-                    val isVoid = d.get("is_void")?.asBoolean ?: false
+                    val online = when {
+                        d.has("paidOnline") && !d.get("paidOnline").isJsonNull -> d.get("paidOnline").asDouble
+                        d.has("paid_online") && !d.get("paid_online").isJsonNull -> d.get("paid_online").asDouble
+                        else -> 0.0
+                    }
+                    val tp = when {
+                        d.has("totalPaid") && !d.get("totalPaid").isJsonNull -> d.get("totalPaid").asDouble
+                        d.has("total_paid") && !d.get("total_paid").isJsonNull -> d.get("total_paid").asDouble
+                        else -> (cash + online)
+                    }
+                    val isVoid = (d.get("isVoid") ?: d.get("is_void"))?.asBoolean ?: false
                     val status = if (d.get("status")?.asString == "skipped") "skipped" else "delivered"
                     val liters = d.get("liters")?.asDouble ?: 0.0
-                    val totalAmt = d.get("total_amount")?.asDouble ?: 0.0
+                    val totalAmt = (d.get("totalAmount") ?: d.get("total_amount"))?.asDouble ?: 0.0
 
                     if (!isVoid) {
                         if (status == "delivered") {
@@ -318,8 +349,8 @@ object BackupManager {
                             id = d.get("id")?.asString ?: "d_$i",
                             customerId = cid,
                             date = d.get("date")?.asString ?: "",
-                            deliveryTime = d.get("delivery_time")?.asString ?: "",
-                            milkType = d.get("milk_type")?.asString ?: "भैंस",
+                            deliveryTime = (d.get("deliveryTime") ?: d.get("delivery_time"))?.asString ?: "",
+                            milkType = (d.get("milkType") ?: d.get("milk_type"))?.asString ?: "भैंस",
                             liters = liters,
                             rate = d.get("rate")?.asDouble ?: 0.0,
                             totalAmount = totalAmt,
@@ -327,10 +358,10 @@ object BackupManager {
                             paidOnline = online,
                             totalPaid = tp,
                             status = status,
-                            portionsJson = d.get("portions_json")?.asString ?: "[]",
+                            portionsJson = (d.get("portionsJson") ?: d.get("portions_json"))?.asString ?: "[]",
                             note = d.get("note")?.asString ?: "",
                             isVoid = isVoid,
-                            voidedAt = d.get("voided_at")?.takeIf { !it.isJsonNull }?.asString
+                            voidedAt = (d.get("voidedAt") ?: d.get("voided_at"))?.takeIf { !it.isJsonNull }?.asString
                         )
                     )
                 }
@@ -340,10 +371,10 @@ object BackupManager {
             if (payArray != null) {
                 for (i in 0 until payArray.size()) {
                     val p = payArray.get(i).asJsonObject
-                    val cid = p.get("customer_id")?.asLong ?: continue
+                    val cid = (p.get("customerId") ?: p.get("customer_id"))?.asLong ?: continue
                     val amt = p.get("amount")?.asDouble ?: 0.0
-                    val mode = p.get("payment_mode")?.asString ?: "Cash"
-                    val isVoid = p.get("is_void")?.asBoolean ?: false
+                    val mode = (p.get("paymentMode") ?: p.get("payment_mode"))?.asString ?: "Cash"
+                    val isVoid = (p.get("isVoid") ?: p.get("is_void"))?.asBoolean ?: false
 
                     if (!isVoid) {
                         totalPaid += amt
@@ -357,11 +388,11 @@ object BackupManager {
                             date = p.get("date")?.asString ?: "",
                             amount = amt,
                             paymentMode = mode,
-                            paymentSubtype = p.get("payment_subtype")?.asString ?: "",
+                            paymentSubtype = (p.get("paymentSubtype") ?: p.get("payment_subtype"))?.asString ?: "",
                             note = p.get("note")?.asString ?: "",
-                            createdAt = p.get("created_at")?.asString ?: "",
+                            createdAt = (p.get("createdAt") ?: p.get("created_at"))?.asString ?: "",
                             isVoid = isVoid,
-                            voidedAt = p.get("voided_at")?.takeIf { !it.isJsonNull }?.asString
+                            voidedAt = (p.get("voidedAt") ?: p.get("voided_at"))?.takeIf { !it.isJsonNull }?.asString
                         )
                     )
                 }

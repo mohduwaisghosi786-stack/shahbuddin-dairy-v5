@@ -429,6 +429,53 @@ class CustomerDetailViewModel(
         }
     }
 
+    fun updateCustomerRate(newRate: Double, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val curr = repository.getCustomerByIdDirect(customerId) ?: return@launch
+            val updated = curr.copy(ratePerLiter = newRate)
+            repository.saveCustomer(updated)
+            onSuccess?.invoke()
+        }
+    }
+
+    fun clearCustomerDues(onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val currentBal = uiState.value.currentBalance
+            if (currentBal > 0.0) {
+                recordDueAdjustment(
+                    currentBalance = currentBal,
+                    targetDue = 0.0,
+                    mode = "Adjustment",
+                    note = "Dues Settled / बकाया 0 किया गया"
+                )
+            }
+            if (uiState.value.pbsPending > 0.0) {
+                updatePbsPending(0.0)
+            }
+            onSuccess?.invoke()
+        }
+    }
+
+    fun recordAdvanceAmount(amount: Double, mode: String = "Advance", note: String = "Advance Received", onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            if (amount > 0.0) {
+                recordDirectPayment(
+                    amount = amount,
+                    mode = mode,
+                    note = note.ifBlank { "Advance Payment" }
+                )
+            }
+            onSuccess?.invoke()
+        }
+    }
+
+    fun archiveCustomer(onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            repository.archiveCustomer(customerId)
+            onSuccess?.invoke()
+        }
+    }
+
     fun exportKhataPdf(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
             val cust = repository.getCustomerByIdDirect(customerId) ?: return@launch

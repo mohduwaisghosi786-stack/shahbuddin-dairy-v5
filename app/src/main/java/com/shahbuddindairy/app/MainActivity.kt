@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Today
@@ -45,6 +46,8 @@ import com.shahbuddindairy.app.ui.screens.CustomersScreen
 import com.shahbuddindairy.app.ui.screens.CustomersViewModel
 import com.shahbuddindairy.app.ui.screens.DailyTaskScreen
 import com.shahbuddindairy.app.ui.screens.DailyTaskViewModel
+import com.shahbuddindairy.app.ui.screens.DashboardScreen
+import com.shahbuddindairy.app.ui.screens.DashboardViewModel
 import com.shahbuddindairy.app.ui.screens.MilkSaleScreen
 import com.shahbuddindairy.app.ui.screens.ReportsScreen
 import com.shahbuddindairy.app.ui.screens.ReportsViewModel
@@ -104,6 +107,7 @@ fun MainAppNavHost() {
     val colorScheme = MaterialTheme.colorScheme
 
     val bottomNavItems = listOf(
+        BottomNavItem(Screen.Dashboard.route, "Dashboard", Icons.Default.Dashboard),
         BottomNavItem(Screen.DailyTask.route, "Daily Task", Icons.Default.Today),
         BottomNavItem(Screen.MilkSale.route, "Milk Sale", Icons.Default.LocalDrink),
         BottomNavItem(Screen.Reports.route, "Daily Report", Icons.Default.Assessment),
@@ -167,17 +171,30 @@ fun MainAppNavHost() {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.DailyTask.route,
+            startDestination = Screen.Dashboard.route,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            composable(Screen.Dashboard.route) {
+                val dashboardViewModel: DashboardViewModel = viewModel()
+                DashboardScreen(
+                    viewModel = dashboardViewModel,
+                    onNavigateToDailyTask = { navController.navigate(Screen.DailyTask.route) },
+                    onNavigateToKhata = { navController.navigate(Screen.Customers.route) },
+                    onNavigateToReport = { navController.navigate(Screen.Reports.route) }
+                )
+            }
+
             composable(Screen.DailyTask.route) {
                 val dailyViewModel: DailyTaskViewModel = viewModel()
                 DailyTaskScreen(
                     viewModel = dailyViewModel,
                     onNavigateToCustomerKhata = { customerId ->
                         navController.navigate(Screen.CustomerDetail.createRoute(customerId))
+                    },
+                    onNavigateBack = {
+                        navController.popBackStack()
                     }
                 )
             }

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,6 +58,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.core.content.FileProvider
 import com.shahbuddindairy.app.receipt.ReceiptImageGenerator
 import com.shahbuddindairy.app.receipt.UpiQrGenerator
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
 import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -121,6 +123,13 @@ fun CustomerDetailScreen(
     var showStatementDialog by remember { mutableStateOf(false) }
     var showTagsDialog by remember { mutableStateOf(false) }
 
+    var showClearDueConfirm by remember { mutableStateOf(false) }
+    var showAdvanceDialog by remember { mutableStateOf(false) }
+    var advanceAmountText by remember { mutableStateOf("") }
+    var advanceNoteText by remember { mutableStateOf("Advance Payment") }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showPreCallCard by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -173,15 +182,21 @@ fun CustomerDetailScreen(
                             Text("💬", fontSize = 16.sp)
                         }
                         IconButton(onClick = {
-                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${uiState.customer?.phone}"))
-                            context.startActivity(intent)
+                            showPreCallCard = true
                         }) {
                             Icon(
                                 imageVector = Icons.Default.Call,
-                                contentDescription = "Call",
+                                contentDescription = "Smart Call",
                                 tint = colorScheme.primary
                             )
                         }
+                    }
+                    IconButton(onClick = { showDeleteConfirm = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Customer",
+                            tint = Color(0xFFDC2626)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -469,6 +484,69 @@ fun CustomerDetailScreen(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(15.dp))
+                    }
+                }
+
+                // QUICK MANAGEMENT & RATE ACTIONS (Zero Due, Record Advance, Rate Presets)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (uiState.currentBalance > 0 || uiState.pbsPending > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFEF2F2),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                            modifier = Modifier.clickable { showClearDueConfirm = true }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("⚡", fontSize = 11.sp)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("बकाया 0 करें", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                            }
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFF0FDF4),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC)),
+                        modifier = Modifier.clickable { showAdvanceDialog = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("💰", fontSize = 11.sp)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("एडवांस दर्ज करें", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        }
+                    }
+
+                    // 1-tap Rate Presets
+                    Text("रेट:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                    val currRate = customer.ratePerLiter
+                    listOf(70.0, 65.0, 60.0).forEach { r ->
+                        val isSel = currRate == r
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSel) colorScheme.primary else colorScheme.surfaceVariant,
+                            modifier = Modifier.clickable { viewModel.updateCustomerRate(r) }
+                        ) {
+                            Text(
+                                text = "₹%.0f".format(r),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSel) Color.White else colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                            )
+                        }
                     }
                 }
 
@@ -839,6 +917,166 @@ fun CustomerDetailScreen(
                 activeTags = uiState.tags,
                 onToggleTag = { tag -> viewModel.toggleCustomerTag(tag) },
                 onDismiss = { showTagsDialog = false }
+            )
+        }
+
+        // SMART CALLING PRE-CALL CUE CARD DIALOG (PILLAR 4)
+        if (showPreCallCard && uiState.customer != null) {
+            val cust = uiState.customer!!
+            val totalDue = uiState.currentBalance + uiState.pbsPending
+            PreCallCueCardDialog(
+                customer = cust,
+                totalDue = totalDue,
+                upiId = uiState.upiId,
+                payeeName = uiState.payeeName,
+                onCallNow = {
+                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${cust.phone}"))
+                    context.startActivity(intent)
+                    showPreCallCard = false
+                },
+                onWhatsAppReminder = {
+                    WhatsAppReportManager.sendGentleDueReminder(
+                        context = context,
+                        customerPhone = cust.phone,
+                        customerName = cust.name,
+                        dueAmount = totalDue,
+                        upiId = uiState.upiId,
+                        payeeName = uiState.payeeName
+                    )
+                    showPreCallCard = false
+                },
+                onDismiss = { showPreCallCard = false }
+            )
+        }
+
+        // CLEAR DUES / ZERO PBS CONFIRMATION DIALOG
+        if (showClearDueConfirm && uiState.customer != null) {
+            AlertDialog(
+                onDismissRequest = { showClearDueConfirm = false },
+                title = { Text("बकाया शून्य (0) करें", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+                text = {
+                    Text(
+                        text = "क्या आप ग्राहक '${uiState.customer?.name}' का बकाया शून्य (Clear) करना चाहते हैं?\n\nवर्तमान बकाया: ${CalculationEngine.formatMoney(uiState.currentBalance + uiState.pbsPending)}\n\nपुराना लेन-देन और हिस्ट्री सुरक्षित रहेगी।",
+                        fontSize = 13.5.sp,
+                        color = colorScheme.onSurface
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.clearCustomerDues {
+                                showClearDueConfirm = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("हाँ, 0 करें", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearDueConfirm = false }) {
+                        Text("रद्द करें")
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                containerColor = colorScheme.surface
+            )
+        }
+
+        // RECORD ADVANCE DIALOG
+        if (showAdvanceDialog && uiState.customer != null) {
+            AlertDialog(
+                onDismissRequest = { showAdvanceDialog = false },
+                title = { Text("एडवांस दर्ज करें (Record Advance)", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "ग्राहक '${uiState.customer?.name}' के लिए प्राप्त एडवांस राशि दर्ज करें:",
+                            fontSize = 13.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = advanceAmountText,
+                            onValueChange = { advanceAmountText = it },
+                            label = { Text("एडवांस राशि (₹)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = advanceNoteText,
+                            onValueChange = { advanceNoteText = it },
+                            label = { Text("विवरण / नोट") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val amt = advanceAmountText.toDoubleOrNull() ?: 0.0
+                            if (amt > 0.0) {
+                                viewModel.recordAdvanceAmount(amt, "Advance", advanceNoteText) {
+                                    showAdvanceDialog = false
+                                    advanceAmountText = ""
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                        shape = RoundedCornerShape(8.dp),
+                        enabled = (advanceAmountText.toDoubleOrNull() ?: 0.0) > 0.0
+                    ) {
+                        Text("एडवांस सेव करें", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAdvanceDialog = false }) {
+                        Text("रद्द करें")
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                containerColor = colorScheme.surface
+            )
+        }
+
+        // DELETE / ARCHIVE CUSTOMER CONFIRMATION DIALOG
+        if (showDeleteConfirm && uiState.customer != null) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("ग्राहक हटाएं (Archive Customer)", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFFDC2626)) },
+                text = {
+                    Text(
+                        text = "क्या आप ग्राहक '${uiState.customer?.name}' को सूची से हटाना चाहते हैं?\n\nउनका पुराना लेन-देन और खाता हिस्ट्री डेटाबेस में सुरक्षित रहेगी।",
+                        fontSize = 13.5.sp,
+                        color = colorScheme.onSurface
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.archiveCustomer {
+                                showDeleteConfirm = false
+                                onNavigateBack()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("हाँ, हटाएं", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text("रद्द करें")
+                    }
+                },
+                shape = RoundedCornerShape(14.dp),
+                containerColor = colorScheme.surface
             )
         }
     }
@@ -1678,6 +1916,155 @@ fun CustomerTagsDialog(
         confirmButton = {
             Button(onClick = onDismiss, shape = RoundedCornerShape(8.dp)) {
                 Text("Done")
+            }
+        },
+        shape = RoundedCornerShape(14.dp)
+    )
+}
+
+/**
+ * SMART CALLING PRE-CALL CUE CARD DIALOG (PILLAR 4)
+ * Shows current outstanding balance, punctuality grade, and polite Hindi calling script.
+ */
+@Composable
+fun PreCallCueCardDialog(
+    customer: CustomerEntity,
+    totalDue: Double,
+    upiId: String,
+    payeeName: String,
+    onCallNow: () -> Unit,
+    onWhatsAppReminder: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    // Determine Punctuality Grade
+    val gradeText = when {
+        totalDue <= 0 -> "Grade A (चुक्ता / एडवांस)"
+        totalDue < 500 -> "Grade B (नियमित)"
+        else -> "Grade C (उधार अधिक)"
+    }
+    val gradeColor = when {
+        totalDue <= 0 -> Color(0xFF15803D)
+        totalDue < 500 -> Color(0xFF2563EB)
+        else -> Color(0xFFDC2626)
+    }
+
+    val suggestedScript = if (totalDue > 0) {
+        "\"नमस्ते ${customer.name} भाई, शाहबुद्दीन डेयरी से। आपका ₹%.0f बकाया है, कल सुबह हिसाब करवा लें तो बड़ी मेहरबानी होगी।\"".format(totalDue)
+    } else {
+        "\"नमस्ते ${customer.name} भाई, आपका हिसाब बिल्कुल बराबर है। किसी अन्य सेवा के लिए संपर्क करें।\""
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Call, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("कॉल से पहले हिसाब (Cue Card)", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Customer & Balance Card
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(customer.name, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = gradeColor.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = gradeText,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = gradeColor,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text("फ़ोन: ${customer.phone}", fontSize = 12.sp, color = colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (totalDue > 0) "कुल बकाया: ₹%.0f".format(totalDue) else "हिसाब बराबर (शून्य बकाया)",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (totalDue > 0) Color(0xFFDC2626) else Color(0xFF15803D)
+                        )
+                    }
+                }
+
+                // AI Polite Script Card
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFFFFBEB),
+                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "💡 विनम्र बातचीत सुझाव (Polite Script):",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF92400E)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = suggestedScript,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF78350F)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onWhatsAppReminder,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("WhatsApp", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                }
+                Button(
+                    onClick = onCallNow,
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("CALL NOW", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("रद्द करें")
             }
         },
         shape = RoundedCornerShape(14.dp)

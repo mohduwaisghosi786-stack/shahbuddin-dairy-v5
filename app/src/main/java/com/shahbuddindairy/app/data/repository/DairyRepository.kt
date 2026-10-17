@@ -193,5 +193,11 @@ class DairyRepository(
             customerDao.updateCustomerRoute(customerId, routeId)
         }
     }
+
+    suspend fun archiveCustomer(customerId: Long) {
+        transactionMutex.withLock {
+            customerDao.archiveCustomer(customerId)
+        }
+    }
 }
 

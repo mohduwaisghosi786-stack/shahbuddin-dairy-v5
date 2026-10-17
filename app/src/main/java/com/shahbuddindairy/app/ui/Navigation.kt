@@ -1,6 +1,7 @@
 package com.shahbuddindairy.app.ui
 
 sealed class Screen(val route: String, val title: String) {
+    object Dashboard : Screen("dashboard", "Dashboard")
     object DailyTask : Screen("daily_task", "Daily Task")
     object MilkSale : Screen("milk_sale", "Milk Sale")
     object Reports : Screen("reports", "Daily Report")

@@ -1,9 +1,19 @@
 package com.shahbuddindairy.app.ui.screens
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import java.net.URLEncoder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,8 +31,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import com.shahbuddindairy.app.ai.VoiceFeedbackManager
+import com.shahbuddindairy.app.ai.PrivateAiApiClient
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
+import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,8 +49,15 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
@@ -55,6 +82,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Today
@@ -101,6 +129,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -134,7 +163,8 @@ import java.util.Locale
 @Composable
 fun DailyTaskScreen(
     viewModel: DailyTaskViewModel,
-    onNavigateToCustomerKhata: (Long) -> Unit
+    onNavigateToCustomerKhata: (Long) -> Unit,
+    onNavigateBack: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val pendingConfirmItem by viewModel.pendingConfirmItem.collectAsState()
@@ -142,19 +172,32 @@ fun DailyTaskScreen(
     val haptic = LocalHapticFeedback.current
     val colorScheme = MaterialTheme.colorScheme
     val coroutineScope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
 
-    // Mode: 0 = Route List, 1 = Runner Mode (1-by-1 step)
-    var viewMode by remember { mutableIntStateOf(0) }
+    // Immersive Fullscreen Mode: hide system status bar in Runner Mode, restore on exit
+    val activity = context as? Activity
+    DisposableEffect(Unit) {
+        val window = activity?.window
+        if (window != null) {
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose {
+            if (window != null) {
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController.show(WindowInsetsCompat.Type.statusBars())
+            }
+        }
+    }
+
     var activeCustomerId by remember { mutableStateOf<Long?>(null) }
-    var showRouteReorderDialog by remember { mutableStateOf(false) }
+    var showCustomerListSheet by remember { mutableStateOf(false) }
+    var showCashCustomerDialog by remember { mutableStateOf(false) }
     var showCalculatorDialog by remember { mutableStateOf(false) }
     var showQuickCustomerDialog by remember { mutableStateOf(false) }
     var customerForNotes by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var showRouteManagerDialog by remember { mutableStateOf(false) }
 
-    // V8.0 Smart Runner 2.0 States
-    val autoNextEnabled by viewModel.autoNextEnabled.collectAsState()
     val savedRunnerCustomerId by viewModel.activeRunnerCustomerId.collectAsState()
     LaunchedEffect(savedRunnerCustomerId) {
         if (savedRunnerCustomerId != null && activeCustomerId == null) {
@@ -166,7 +209,6 @@ fun DailyTaskScreen(
     var runnerQrCustomerItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
     var runnerReceiptCustomerItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
 
-    // V7.6 Dialog States
     var editingDueCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
     var editingAdvanceCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
     var editingMasterCustomer by remember { mutableStateOf<CustomerEntity?>(null) }
@@ -174,10 +216,61 @@ fun DailyTaskScreen(
     var editingMilkCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
     var pbsManagerCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
     var runnerCashConfirmItem by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var showAiMunshiDialog by remember { mutableStateOf(false) }
+    var customRateDialogCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var deliveredAnimCustomer by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(deliveredAnimCustomer) {
+        if (deliveredAnimCustomer != null) {
+            kotlinx.coroutines.delay(900)
+            deliveredAnimCustomer = null
+        }
+    }
 
     // Synchronize ongoing delivery route notification
     LaunchedEffect(uiState.selectedDate, uiState.completedCount) {
         DailyTaskNotificationManager.updateNotification(context)
+    }
+
+    // Live clock for Header
+    var currentTimeStr by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTimeStr = java.text.SimpleDateFormat("hh:mm a", Locale.getDefault()).format(java.util.Date())
+            kotlinx.coroutines.delay(10000)
+        }
+    }
+
+    // Voice Feedback & AI Clients
+    val voiceManager = remember { VoiceFeedbackManager.getInstance(context) }
+    val aiClient = remember { PrivateAiApiClient(context) }
+    var aiPingLatency by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(Unit) {
+        aiPingLatency = aiClient.checkPingLatency()
+    }
+
+    // Runner 2.0 Visual Navigation States (Panels 1, 2, 3, 4)
+    var showSideTray by remember { mutableStateOf(false) }
+    var showQuickJumpDialog by remember { mutableStateOf(false) }
+    var scrubberBubbleText by remember { mutableStateOf<String?>(null) }
+    var skippedCustomerIds by remember { mutableStateOf(listOf<Long>()) }
+
+    // Runner Queue Filtering (Exclude Alternate Off, move skipped to end of queue)
+    val allCards = uiState.customerCards
+    val runnerQueueCards = remember(allCards) { allCards.filter { !it.isAlternateOff } }
+    val baseCards = if (runnerQueueCards.isNotEmpty()) runnerQueueCards else allCards
+    val cards = remember(baseCards, skippedCustomerIds) {
+        if (skippedCustomerIds.isEmpty()) baseCards
+        else {
+            val nonSkipped = baseCards.filter { it.customer.id !in skippedCustomerIds }
+            val skipped = baseCards.filter { it.customer.id in skippedCustomerIds }
+            nonSkipped + skipped
+        }
+    }
+    val currentItem = cards.find { it.customer.id == activeCustomerId } ?: allCards.find { it.customer.id == activeCustomerId } ?: cards.firstOrNull()
+    val currentIndex = if (currentItem != null) cards.indexOf(currentItem).coerceAtLeast(0) else 0
+    if (activeCustomerId != currentItem?.customer?.id && currentItem != null) {
+        activeCustomerId = currentItem.customer.id
     }
 
     Column(
@@ -185,532 +278,364 @@ fun DailyTaskScreen(
             .fillMaxSize()
             .background(colorScheme.background)
     ) {
-        // TOP APP HEADER
-        AppTopHeader(
-            title = "Daily Task",
-            subtitle = "वितरण सूची • ${CalculationEngine.formatDateDisplay(uiState.selectedDate)}",
-            marketDue = uiState.totalMarketDue
-        )
-
-        // DATE SELECTOR BAR
-        DateSelectorHeader(
-            selectedDate = uiState.selectedDate,
-            onPrevDay = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                viewModel.onPreviousDay()
-            },
-            onNextDay = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                viewModel.onNextDay()
-            },
-            onToday = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                viewModel.onDateSelected(CalculationEngine.todayStr())
-            }
-        )
-
-        if (viewMode == 0) {
-            // MOTIVATION / DAILY FACTUAL PROGRESS BANNER
-            if (uiState.showMotivation && uiState.motivationText.isNotBlank()) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = colorScheme.secondaryContainer.copy(alpha = 0.65f),
+        // 1. RUNNER MODE TOP HEADER (Date, Time, Title, [📋 ग्राहक सूची], [+ नकद ग्राहक])
+        Surface(
+            color = colorScheme.surface,
+            border = BorderStroke(1.dp, colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.TrendingUp,
-                        contentDescription = null,
-                        tint = colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = uiState.motivationText,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colorScheme.onSecondaryContainer,
-                        modifier = Modifier.weight(1f)
-                    )
                     IconButton(
-                        onClick = { viewModel.toggleMotivation(false) },
-                        modifier = Modifier.size(18.dp)
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onNavigateBack()
+                        },
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Dismiss",
-                            tint = colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(13.dp)
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "वापस (Back)",
+                            tint = colorScheme.onSurface,
+                            modifier = Modifier.size(24.dp)
                         )
+                    }
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "रनर मोड",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            // Live AI Ping Badge
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (aiPingLatency != null) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
+                                border = BorderStroke(1.dp, if (aiPingLatency != null) Color(0xFF86EFAC) else Color(0xFFFCD34D)),
+                                modifier = Modifier.clickable {
+                                    coroutineScope.launch {
+                                        aiPingLatency = aiClient.checkPingLatency()
+                                    }
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (aiPingLatency != null) Color(0xFF15803D) else Color(0xFFD97706))
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = if (aiPingLatency != null) "Debian • ${aiPingLatency}ms" else "Local AI",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (aiPingLatency != null) Color(0xFF15803D) else Color(0xFF92400E)
+                                    )
+                                }
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.onPreviousDay()
+                                },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(Icons.Default.ChevronLeft, contentDescription = "Prev Day", tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                            Text(
+                                text = "${CalculationEngine.formatDateDisplay(uiState.selectedDate)} • $currentTimeStr",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                            IconButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.onNextDay()
+                                },
+                                modifier = Modifier.size(20.dp)
+                            ) {
+                                Icon(Icons.Default.ChevronRight, contentDescription = "Next Day", tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // [⚡ जंप (Quick Jump Keypad)]
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.primaryContainer,
+                        border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.5f)),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showQuickJumpDialog = true
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Dialpad, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("जंप", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        }
+                    }
+
+                    // [📋 ग्राहक सूची (Side Tray)]
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.5.dp, colorScheme.outlineVariant),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showSideTray = true
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, tint = colorScheme.onSurface, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("सूची", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurface)
+                        }
+                    }
+
+                    // [+ नकद ग्राहक]
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF15803D),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showCashCustomerDialog = true
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text("नकद", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
                     }
                 }
             }
         }
 
-        // METRICS DASHBOARD STRIP (With Total Route Progress)
+        // 2. LIVE MILK CAN TRACKER STRIP
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, if (uiState.isCanShortageWarning) Color(0xFFDC2626) else colorScheme.outlineVariant),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 3.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "गाड़ी/कैन: %.1fL बचा".format(uiState.remainingCanLiters),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (uiState.isCanShortageWarning) Color(0xFFDC2626) else Color(0xFF1E40AF)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "वितरित: %.1fL".format(uiState.totalMilk),
+                            fontSize = 11.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val totalCards = uiState.customerCards.size
+                        Text(
+                            text = "${uiState.completedCount}/$totalCards पूर्ण",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "₹%,d".format(uiState.totalCashCollected.toLong()),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF15803D)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(3.dp))
+                val canProgress = if (uiState.loadedCanLiters > 0) ((uiState.totalMilk / uiState.loadedCanLiters).toFloat()).coerceIn(0f, 1f) else 0f
+                LinearProgressIndicator(
+                    progress = { canProgress },
+                    modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
+                    color = if (uiState.isCanShortageWarning) Color(0xFFDC2626) else Color(0xFF15803D),
+                    trackColor = colorScheme.outlineVariant
+                )
+            }
+        }
+
+        // 3. QUEUE PROGRESS & MUNSHI AI ROW
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            StatCard(
-                label = "Today's Milk",
-                value = CalculationEngine.formatLiters(uiState.totalMilk),
-                subValue = "Bill: ${CalculationEngine.formatMoney(uiState.totalBill)}",
-                valueColor = colorScheme.primary,
-                icon = Icons.Default.WaterDrop,
-                modifier = Modifier.weight(1f)
-            )
-            StatCard(
-                label = "Cash Collected",
-                value = CalculationEngine.formatMoney(uiState.totalCashCollected),
-                subValue = "Due: ${CalculationEngine.formatMoney(uiState.totalMarketDue)}",
-                valueColor = colorScheme.primary,
-                icon = Icons.Default.Payments,
-                modifier = Modifier.weight(1f)
-            )
-            val totalRouteCount = uiState.completedCount + uiState.pendingCount + uiState.nagaCount
-            StatCard(
-                label = "Route Progress",
-                value = "${uiState.completedCount} / $totalRouteCount",
-                subValue = "Pending: ${uiState.pendingCount} • Naga: ${uiState.nagaCount}",
-                valueColor = if (uiState.pendingCount == 0 && uiState.completedCount > 0) colorScheme.primary else Color(0xFFE65100),
-                icon = Icons.Default.Check,
-                modifier = Modifier.weight(1f)
-            )
-        }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (currentIndex > 0) {
+                            val prevId = cards[currentIndex - 1].customer.id
+                            activeCustomerId = prevId
+                            viewModel.setActiveRunnerCustomerId(prevId)
+                        }
+                    },
+                    enabled = currentIndex > 0,
+                    modifier = Modifier.size(26.dp)
+                ) {
+                    Icon(Icons.Default.ChevronLeft, contentDescription = "Prev", tint = if (currentIndex > 0) colorScheme.primary else colorScheme.outlineVariant, modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    text = "ग्राहक ${if (cards.isNotEmpty()) currentIndex + 1 else 0} / ${cards.size}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (currentIndex < cards.size - 1) {
+                            val nextId = cards[currentIndex + 1].customer.id
+                            activeCustomerId = nextId
+                            viewModel.setActiveRunnerCustomerId(nextId)
+                        }
+                    },
+                    enabled = currentIndex < cards.size - 1,
+                    modifier = Modifier.size(26.dp)
+                ) {
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Next", tint = if (currentIndex < cards.size - 1) colorScheme.primary else colorScheme.outlineVariant, modifier = Modifier.size(20.dp))
+                }
+            }
 
-        // ROUTE SELECTOR CHIPS & ROUTE MANAGER ROW
-        if (uiState.availableRoutes.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Route Manager Button
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${uiState.pendingCount} बाकी • ${uiState.nagaCount} नागा",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(6.dp))
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.surfaceContainer,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+                    shape = RoundedCornerShape(6.dp),
+                    color = colorScheme.primaryContainer,
                     modifier = Modifier.clickable {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showRouteManagerDialog = true
+                        showAiMunshiDialog = true
                     }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AltRoute,
-                            contentDescription = "Manage Routes",
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Routes",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
+                        Icon(Icons.Default.Mic, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(12.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("मुंशी AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
                     }
-                }
-
-                // All Routes Chip
-                val isAllSel = uiState.selectedRouteId == "ALL"
-                FilterChip(
-                    selected = isAllSel,
-                    onClick = { viewModel.selectRouteFilter("ALL") },
-                    label = { Text("All Routes (${uiState.customerCards.size})", fontSize = 11.sp, fontWeight = if (isAllSel) FontWeight.Bold else FontWeight.Normal) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colorScheme.primary,
-                        selectedLabelColor = colorScheme.onPrimary
-                    ),
-                    shape = RoundedCornerShape(8.dp)
-                )
-
-                uiState.availableRoutes.forEach { route ->
-                    val isSel = uiState.selectedRouteId == route.id
-                    FilterChip(
-                        selected = isSel,
-                        onClick = { viewModel.selectRouteFilter(route.id) },
-                        label = { Text(route.name, fontSize = 11.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = colorScheme.primary,
-                            selectedLabelColor = colorScheme.onPrimary
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    )
                 }
             }
         }
 
-        // LIVE ROUTE PROGRESS BAR
-        uiState.routeProgress?.let { prog ->
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = colorScheme.surfaceContainer,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp)
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${prog.routeName}: ${prog.deliveredCount}/${prog.totalCustomers} Delivered",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurface
-                        )
-                        Text(
-                            text = "${prog.percentComplete}% (${prog.pendingCount} Pending)",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(3.dp))
-                    LinearProgressIndicator(
-                        progress = { (prog.percentComplete / 100f).coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                        color = colorScheme.primary,
-                        trackColor = colorScheme.surfaceContainerHigh
-                    )
-                }
-            }
-        }
-
-            // 1. COMPACT SEARCH BAR (42dp height)
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = colorScheme.surfaceContainer,
-                border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp)
-                    .height(42.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (uiState.searchQuery.isEmpty()) {
-                            Text(
-                                text = "Search name, ID, phone, mohalla...",
-                                fontSize = 12.5.sp,
-                                color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        BasicTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = { viewModel.onSearchQueryChanged(it) },
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                fontSize = 13.5.sp,
-                                color = colorScheme.onSurface
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    if (uiState.searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { viewModel.onSearchQueryChanged("") },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Clear",
-                                tint = colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
+        // TIER 1: TOP HORIZONTAL SPEED STRIP / STORY CAROUSEL (PANEL 3)
+        if (cards.isNotEmpty()) {
+            val horizontalStripListState = rememberLazyListState()
+            LaunchedEffect(currentIndex) {
+                if (currentIndex in cards.indices) {
+                    val targetScroll = (currentIndex - 2).coerceAtLeast(0)
+                    horizontalStripListState.animateScrollToItem(targetScroll)
                 }
             }
 
-            // 2. BALANCED ACTION BAR ROW (~36dp height)
-            Row(
+            LazyRow(
+                state = horizontalStripListState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // RUNNER MODE TOGGLE
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.primaryContainer,
-                    border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.5f)),
-                    modifier = Modifier
-                        .weight(1.3f)
-                        .height(36.dp)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewMode = 1
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.DirectionsRun,
-                            contentDescription = null,
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "RUNNER",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                    }
-                }
+                itemsIndexed(cards) { idx, cardItem ->
+                    val isSelected = cardItem.customer.id == currentItem?.customer?.id
+                    val isDone = cardItem.isDone
+                    val isNaga = cardItem.isNaga
 
-                // ORDER
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .height(36.dp)
-                        .clickable {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = when {
+                            isSelected -> colorScheme.primary
+                            isDone -> Color(0xFFDCFCE7)
+                            isNaga -> Color(0xFFFEE2E2)
+                            else -> colorScheme.surfaceContainerHigh
+                        },
+                        border = BorderStroke(
+                            if (isSelected) 2.dp else 1.dp,
+                            when {
+                                isSelected -> colorScheme.primary
+                                isDone -> Color(0xFF22C55E)
+                                isNaga -> Color(0xFFEF4444)
+                                else -> colorScheme.outlineVariant
+                            }
+                        ),
+                        modifier = Modifier.clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showRouteReorderDialog = true
+                            activeCustomerId = cardItem.customer.id
+                            viewModel.setActiveRunnerCustomerId(cardItem.customer.id)
                         }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.SwapVert,
-                            contentDescription = "Order",
-                            tint = colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Order", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
-                    }
-                }
-
-                // CALC
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(36.dp)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showCalculatorDialog = true
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Calculate,
-                            contentDescription = "Calc",
-                            tint = colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Calc", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
-                    }
-                }
-
-                // +QUICK CUSTOMER
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .height(36.dp)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showQuickCustomerDialog = true
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PersonAdd,
-                            contentDescription = "+Quick",
-                            tint = colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("+Quick", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
-                    }
-                }
-
-                // ROUTES MANAGER
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.surfaceContainer,
-                    border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .height(36.dp)
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            showRouteManagerDialog = true
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AltRoute,
-                            contentDescription = "Routes",
-                            tint = colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Routes", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.onSurface)
-                    }
-                }
-            }
-
-            // FILTER CHIPS ROW
-            FilterChipsRow(
-                activeFilter = uiState.activeFilter,
-                onFilterSelected = {
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    viewModel.onFilterSelected(it)
-                }
-            )
-        } else {
-            // DEDICATED RUNNER MODE TOP BAR (No search/filter clutter)
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = colorScheme.primaryContainer.copy(alpha = 0.5f),
-                border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.3f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 3.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.DirectionsRun,
-                            contentDescription = null,
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Column {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "RUNNER MODE (1-Hand)",
+                                text = "#${cardItem.routeIndex + 1}",
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.primary
+                                color = if (isSelected) Color.White else colorScheme.onSurface
                             )
-                            val rName = uiState.selectedRouteId.let { rId -> uiState.availableRoutes.find { it.id == rId }?.name ?: "All Routes" }
-                            Text(
-                                text = "$rName • ${uiState.completedCount}/${uiState.customerCards.size} Done (${uiState.pendingCount} left)",
-                                fontSize = 10.5.sp,
-                                color = colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // AUTO NEXT TOGGLE
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (autoNextEnabled) colorScheme.primary else colorScheme.surface,
-                            border = BorderStroke(1.dp, if (autoNextEnabled) colorScheme.primary else colorScheme.outlineVariant),
-                            modifier = Modifier.clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.setAutoNextEnabled(!autoNextEnabled)
-                            }
-                        ) {
-                            Text(
-                                text = if (autoNextEnabled) "Auto ⏩" else "Auto ⏸",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (autoNextEnabled) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
-                            )
-                        }
-
-                        // LIST MODE SWITCH
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = colorScheme.surface,
-                            border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                            modifier = Modifier.clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewMode = 0
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
-                                    contentDescription = null,
-                                    tint = colorScheme.onSurface,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "List",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colorScheme.onSurface
-                                )
+                            if (isDone) {
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("✓", fontSize = 11.sp, fontWeight = FontWeight.Black, color = if (isSelected) Color.White else Color(0xFF15803D))
+                            } else if (isNaga) {
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("✕", fontSize = 11.sp, fontWeight = FontWeight.Black, color = if (isSelected) Color.White else Color(0xFFDC2626))
                             }
                         }
                     }
@@ -718,36 +643,23 @@ fun DailyTaskScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(2.dp))
-
-        // MAIN CONTENT AREA
+        // 4. MAIN RUNNER DELIVERY CARD
         if (uiState.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = colorScheme.primary)
             }
-        } else if (uiState.customerCards.isEmpty()) {
+        } else if (allCards.isEmpty()) {
             EmptyState(
-                title = if (uiState.searchQuery.isNotBlank()) "No Matching Customers" else "No Deliveries Pending",
-                message = if (uiState.searchQuery.isNotBlank())
-                    "No customers found matching \"${uiState.searchQuery}\""
-                else "No customers found for the selected filter on this date."
+                title = "कोई ग्राहक नहीं मिला",
+                message = "आज के लिए कोई ग्राहक नहीं है।"
             )
-        } else if (viewMode == 1) {
-            // RUNNER MODE (Single customer 1-hand delivery runner)
-            val cards = uiState.customerCards
-            val currentItem = cards.find { it.customer.id == activeCustomerId } ?: cards.firstOrNull()
-            val currentIndex = if (currentItem != null) cards.indexOf(currentItem).coerceAtLeast(0) else 0
-            if (activeCustomerId != currentItem?.customer?.id) {
-                activeCustomerId = currentItem?.customer?.id
-            }
-
-            if (currentItem != null) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    DailyTaskRunnerCard(
+        } else if (currentItem != null) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                DailyTaskRunnerCard(
                     item = currentItem,
                     currentIndex = currentIndex,
                     totalCount = cards.size,
@@ -778,15 +690,45 @@ fun DailyTaskScreen(
                     },
                     onSaveClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val cash = currentItem.currentCashInput.toDoubleOrNull() ?: 0.0
-                        if (cash > 0.0) {
-                            runnerCashConfirmItem = currentItem
-                        } else {
-                            viewModel.requestConfirmSave(currentItem)
+                        deliveredAnimCustomer = currentItem.customer.name
+                        val milkLiters = currentItem.currentMilkInput.toDoubleOrNull() ?: currentItem.customer.defaultLiters
+                        val billAmt = CalculationEngine.round2(milkLiters * currentItem.applicableRate)
+                        voiceManager.speakDelivery(currentItem.customer.name, milkLiters, billAmt)
+                        val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = true)
+                        viewModel.confirmAndSaveTransaction(currentItem) {
+                            if (nextTargetId != null) {
+                                activeCustomerId = nextTargetId
+                                viewModel.setActiveRunnerCustomerId(nextTargetId)
+                            }
                         }
+                    },
+                    onRateSelected = { r ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        viewModel.updateCustomerRate(currentItem.customer.id, r)
+                    },
+                    onCustomRateClicked = {
+                        customRateDialogCustomer = currentItem
+                    },
+                    onAiMunshiClicked = {
+                        showAiMunshiDialog = true
+                    },
+                    onSendWhatsAppReminder = {
+                        val reminderMsg = com.shahbuddindairy.app.ai.DairyAiPredictor.generateSoftReminderText(currentItem.customer.name, currentItem.prevDue)
+                        val cleanPhone = currentItem.customer.phone.replace("+", "").replace(" ", "").replace("-", "")
+                        val url = if (cleanPhone.isNotBlank()) {
+                            val fullPhone = if (cleanPhone.length == 10) "91$cleanPhone" else cleanPhone
+                            "https://api.whatsapp.com/send?phone=$fullPhone&text=" + URLEncoder.encode(reminderMsg, "UTF-8")
+                        } else {
+                            "https://api.whatsapp.com/send?text=" + URLEncoder.encode(reminderMsg, "UTF-8")
+                        }
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
                     },
                     onNagaClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        voiceManager.speakNaga(currentItem.customer.name)
                         val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = true)
                         viewModel.markNaga(currentItem) {
                             if (nextTargetId != null) {
@@ -794,6 +736,40 @@ fun DailyTaskScreen(
                                 viewModel.setActiveRunnerCustomerId(nextTargetId)
                             }
                         }
+                    },
+                    onSkipClicked = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        voiceManager.speakSkip(currentItem.customer.name)
+                        skippedCustomerIds = skippedCustomerIds + currentItem.customer.id
+                        val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = false)
+                        if (nextTargetId != null) {
+                            activeCustomerId = nextTargetId
+                            viewModel.setActiveRunnerCustomerId(nextTargetId)
+                        }
+                    },
+                    onCustomerNumberClicked = {
+                        showQuickJumpDialog = true
+                    },
+                    onWhatsAppReceiptClicked = {
+                        val lit = currentItem.currentMilkInput.toDoubleOrNull() ?: currentItem.customer.defaultLiters
+                        val rate = currentItem.applicableRate
+                        val bill = CalculationEngine.round2(lit * rate)
+                        val cash = currentItem.currentCashInput.toDoubleOrNull() ?: 0.0
+                        val pbs = if (currentItem.prevDue > 0) currentItem.prevDue else 0.0
+                        val adv = if (currentItem.prevDue < 0) -currentItem.prevDue else 0.0
+                        val netDue = CalculationEngine.round2((bill + pbs) - (cash + adv))
+                        WhatsAppReportManager.sendDeliveryReceipt(
+                            context = context,
+                            customerPhone = currentItem.customer.phone,
+                            customerName = currentItem.customer.name,
+                            dateStr = CalculationEngine.formatDateDisplay(uiState.selectedDate),
+                            liters = lit,
+                            milkType = currentItem.customer.milkType,
+                            rate = rate,
+                            todayBill = bill,
+                            cashPaid = cash,
+                            totalRemainingDue = netDue
+                        )
                     },
                     onAlternateClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -831,109 +807,137 @@ fun DailyTaskScreen(
                     onAdvanceEditClicked = { editingAdvanceCustomer = currentItem },
                     onMoreClicked = { runnerMoreCustomerItem = currentItem }
                 )
+
+                // FLOATING PULL-TAB ON RIGHT EDGE (Panel 2 trigger)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                        .background(colorScheme.primaryContainer)
+                        .border(1.dp, colorScheme.primary, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showSideTray = true
+                        }
+                        .padding(horizontal = 5.dp, vertical = 12.dp)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.ChevronLeft, contentDescription = "Open Drawer", tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Text("${cards.size}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    }
                 }
-            }
-        } else {
-            // ROUTE LIST MODE (Compact scrollable list)
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 12.dp,
-                    end = 12.dp,
-                    bottom = 90.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(uiState.customerCards, key = { it.customer.id }) { cardItem ->
-                    val cardIndex = uiState.customerCards.indexOf(cardItem)
-                    DailyCustomerCard(
-                        item = cardItem,
-                        onQuantityChanged = { q -> viewModel.onQuantityChanged(cardItem.customer.id, q) },
-                        onCashChanged = { c -> viewModel.onCashChanged(cardItem.customer.id, c) },
-                        onUseSuggestedMilk = { suggestedLiters ->
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            viewModel.useSuggestedMilk(cardItem.customer.id, suggestedLiters)
-                        },
-                        onSaveClicked = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.requestConfirmSave(cardItem)
-                        },
-                        onNagaClicked = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.markNaga(cardItem)
-                        },
-                        onKhataClicked = { onNavigateToCustomerKhata(cardItem.customer.id) },
-                        onPbsEditClicked = { pbsManagerCustomer = cardItem },
-                        onNextClicked = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            if (cardIndex < uiState.customerCards.size - 1) {
-                                coroutineScope.launch {
-                                    listState.animateScrollToItem(cardIndex + 1)
-                                }
+
+                // Instant Delivery Checkmark Animation Overlay
+                if (deliveredAnimCustomer != null) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xFF15803D),
+                        shadowElevation = 12.dp,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(24.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("DELIVERED ✓", fontWeight = FontWeight.Black, fontSize = 17.sp, color = Color.White)
+                                Text(deliveredAnimCustomer ?: "", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.95f))
                             }
-                        },
-                        onCallClicked = {
-                            if (cardItem.customer.phone.isNotBlank()) {
-                                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${cardItem.customer.phone}"))
-                                context.startActivity(intent)
-                            }
-                        },
-                        onNotesClicked = {
-                            customerForNotes = Pair(cardItem.customer.id, cardItem.customer.name)
-                        },
-                        onOneTapPayment = { amt ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.recordOneTapPayment(cardItem.customer.id, amt)
-                        },
-                        onEditCustomerClicked = { editingMasterCustomer = it },
-                        onMilkEditClicked = { editingMilkCustomer = cardItem },
-                        onBillEditClicked = { overridingBillCustomer = cardItem },
-                        onDueEditClicked = { editingDueCustomer = cardItem },
-                        onAdvanceEditClicked = { editingAdvanceCustomer = cardItem }
-                    )
+                        }
+                    }
                 }
             }
         }
     }
 
-    // SAFE TRANSACTION CONFIRMATION DIALOG
-    pendingConfirmItem?.let { item ->
-        val liters = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
-        val rate = item.applicableRate
-        val bill = CalculationEngine.round2(liters * rate)
-        val cash = item.currentCashInput.toDoubleOrNull() ?: 0.0
-        val totalReq = CalculationEngine.round2(bill + item.prevDue)
-        val net = CalculationEngine.round2(totalReq - cash)
-        val newDue = if (net > 0) net else 0.0
-        val advance = if (net < 0) CalculationEngine.round2(-net) else 0.0
+    // CUSTOMER LIST SHEET (All 46 customers with search & filter)
+    if (showCustomerListSheet) {
+        CustomerListSheet(
+            allCards = uiState.customerCards,
+            onSelectCustomer = { cId ->
+                activeCustomerId = cId
+                viewModel.setActiveRunnerCustomerId(cId)
+                showCustomerListSheet = false
+            },
+            onDismiss = { showCustomerListSheet = false }
+        )
+    }
 
-        TransactionConfirmDialog(
-            customerName = item.customer.name,
-            customerId = item.customer.id,
-            liters = liters,
-            rate = rate,
-            todayBill = bill,
-            prevDue = item.prevDue,
-            todayCash = cash,
-            newDue = newDue,
-            advance = advance,
-            onConfirm = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                val currentCards = uiState.customerCards
-                val nextTargetId = if (autoNextEnabled) {
-                    viewModel.findSmartNextCustomerId(item.customer.id, currentCards, skipCompleted = true)
-                } else null
-
-                viewModel.confirmAndSaveTransaction {
-                    if (viewMode == 1 && nextTargetId != null) {
-                        activeCustomerId = nextTargetId
-                        viewModel.setActiveRunnerCustomerId(nextTargetId)
-                    }
+    // QUICK CASH CUSTOMER DIALOG (+ नकद ग्राहक)
+    if (showCashCustomerDialog) {
+        CashCustomerDialog(
+            onDismiss = { showCashCustomerDialog = false },
+            onSaveAndDeliver = { name, milkType, liters, rate, cash ->
+                viewModel.addQuickCustomerAndDeliver(
+                    name = name,
+                    milkType = milkType,
+                    liters = liters,
+                    rate = rate,
+                    cash = cash,
+                    saveAsRegular = false
+                ) {
+                    showCashCustomerDialog = false
+                }
+            }
+        )
+    }
+    // CUSTOM RATE DIALOG (1-Tap Rate Customizer)
+    customRateDialogCustomer?.let { custItem ->
+        var tempRateText by remember { mutableStateOf(custItem.applicableRate.toString()) }
+        AlertDialog(
+            onDismissRequest = { customRateDialogCustomer = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Tune, contentDescription = null, tint = colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Customer Rate (दर)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
-            onDismiss = { viewModel.dismissConfirmDialog() }
-
+            text = {
+                Column {
+                    Text(
+                        text = "${custItem.customer.name} ke liye naya rate (₹/L) set karein:",
+                        fontSize = 13.sp,
+                        color = colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = tempRateText,
+                        onValueChange = { tempRateText = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                        prefix = { Text("₹ ", fontWeight = FontWeight.Bold, color = colorScheme.primary) },
+                        suffix = { Text("/L", fontWeight = FontWeight.Bold, color = colorScheme.primary) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val r = tempRateText.toDoubleOrNull()
+                        if (r != null && r > 0) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.updateCustomerRate(custItem.customer.id, r)
+                        }
+                        customRateDialogCustomer = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("SAVE RATE", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { customRateDialogCustomer = null }) {
+                    Text("CANCEL")
+                }
+            }
         )
     }
 
@@ -956,9 +960,10 @@ fun DailyTaskScreen(
             item = item,
             onDismiss = { editingDueCustomer = null },
             onConfirm = { targetDue, note ->
+                val baseBal = if (item.prevDue > 0) item.prevDue else item.remainingDue
                 viewModel.recordDueAdjustment(
                     customerId = item.customer.id,
-                    currentBalance = item.remainingDue,
+                    currentBalance = baseBal,
                     targetDue = targetDue,
                     note = note
                 ) {
@@ -1030,12 +1035,10 @@ fun DailyTaskScreen(
             item = item,
             onConfirm = {
                 val currentCards = uiState.customerCards
-                val nextTargetId = if (autoNextEnabled) {
-                    viewModel.findSmartNextCustomerId(item.customer.id, currentCards, skipCompleted = true)
-                } else null
+                val nextTargetId = viewModel.findSmartNextCustomerId(item.customer.id, currentCards, skipCompleted = true)
 
                 viewModel.confirmAndSaveTransaction {
-                    if (viewMode == 1 && nextTargetId != null) {
+                    if (nextTargetId != null) {
                         activeCustomerId = nextTargetId
                         viewModel.setActiveRunnerCustomerId(nextTargetId)
                     }
@@ -1097,15 +1100,21 @@ fun DailyTaskScreen(
         )
     }
 
-    // ROUTE REORDER DIALOG
-    if (showRouteReorderDialog) {
-        RouteReorderDialog(
-            initialCustomers = uiState.allActiveCustomers,
-            onDismiss = { showRouteReorderDialog = false },
-            onSaveOrder = { newOrder: List<CustomerEntity> ->
-                viewModel.saveRouteOrder(newOrder) {
-                    showRouteReorderDialog = false
-                }
+    // 11. AI MUNSHI OFFLINE VOICE & TEXT DIALOG
+    if (showAiMunshiDialog) {
+        AiMunshiDialog(
+            customers = uiState.allActiveCustomers,
+            onDismiss = { showAiMunshiDialog = false },
+            onExecuteCommand = { cmd ->
+                viewModel.executeAiMunshiCommand(
+                    cmd = cmd,
+                    onSuccess = {
+                        showAiMunshiDialog = false
+                    },
+                    onError = { err ->
+                        android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                )
             }
         )
     }
@@ -1155,845 +1164,907 @@ fun DailyTaskScreen(
             onDismiss = { showRouteManagerDialog = false }
         )
     }
+
+    // TIER 2: SLIDE-OUT SIDE MINI TRAY WITH FAST THUMB SCRUBBER (PANELS 1 & 2)
+    if (showSideTray) {
+        RunnerSideTrayWithScrubber(
+            cards = cards,
+            currentItemId = currentItem?.customer?.id,
+            onSelectCustomer = { cId ->
+                activeCustomerId = cId
+                viewModel.setActiveRunnerCustomerId(cId)
+            },
+            onScrubberBubbleChanged = { scrubberBubbleText = it },
+            onClose = {
+                showSideTray = false
+                scrubberBubbleText = null
+            }
+        )
+    }
+
+    // TIER 3: QUICK JUMP KEYPAD DIALOG (PANEL 4)
+    if (showQuickJumpDialog) {
+        QuickJumpKeypadDialog(
+            cards = cards,
+            onSelectCustomer = { cId ->
+                activeCustomerId = cId
+                viewModel.setActiveRunnerCustomerId(cId)
+            },
+            onDismiss = { showQuickJumpDialog = false }
+        )
+    }
+
+    // FLOATING SCRUBBER MAGNIFICATION BUBBLE (PANEL 1)
+    if (scrubberBubbleText != null) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF1E293B),
+                shadowElevation = 16.dp,
+                border = BorderStroke(2.dp, Color(0xFF60A5FA)),
+                modifier = Modifier.padding(24.dp)
+            ) {
+                Text(
+                    text = scrubberBubbleText ?: "",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp)
+                )
+            }
+        }
+    }
 }
 
 
 
+
 @Composable
-private fun DateSelectorHeader(
-    selectedDate: String,
-    onPrevDay: () -> Unit,
-    onNextDay: () -> Unit,
-    onToday: () -> Unit
+fun CustomerListSheet(
+    allCards: List<DailyCustomerCardItem>,
+    onSelectCustomer: (Long) -> Unit,
+    onDismiss: () -> Unit
 ) {
-    val isToday = selectedDate == CalculationEngine.todayStr()
-    val colorScheme = MaterialTheme.colorScheme
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("ALL") }
 
-    Surface(
-        color = colorScheme.surface,
-        tonalElevation = 1.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onPrevDay,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Day", tint = colorScheme.primary)
+    val filteredList = remember(allCards, searchQuery, selectedFilter) {
+        allCards.filter { item ->
+            val matchesSearch = searchQuery.isBlank() ||
+                item.customer.name.contains(searchQuery, ignoreCase = true) ||
+                item.customer.mohalla.contains(searchQuery, ignoreCase = true) ||
+                item.customer.id.toString().contains(searchQuery)
+
+            val matchesFilter = when (selectedFilter) {
+                "PENDING" -> !item.isDone && !item.isNaga && !item.isAlternateOff
+                "DONE" -> item.isDone
+                "NAGA" -> item.isNaga
+                "ALTERNATE" -> item.isAlternateOff
+                else -> true
             }
+            matchesSearch && matchesFilter
+        }
+    }
 
+    val pendingCount = remember(allCards) { allCards.count { !it.isDone && !it.isNaga && !it.isAlternateOff } }
+    val doneCount = remember(allCards) { allCards.count { it.isDone } }
+    val nagaCount = remember(allCards) { allCards.count { it.isNaga } }
+    val altCount = remember(allCards) { allCards.count { it.isAlternateOff } }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onToday() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Default.Today,
-                    contentDescription = null,
-                    tint = colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("ग्राहक सूची (${allCards.size})", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Search bar
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("नाम से खोजें...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = CalculationEngine.formatDateDisplay(selectedDate),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurface
-                    )
-                    if (isToday) {
-                        Text(
-                            text = "TODAY (आज)",
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary,
-                            letterSpacing = 0.5.sp
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Filter pills
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "ALL" to "सभी (${allCards.size})",
+                        "PENDING" to "बाकी ($pendingCount)",
+                        "DONE" to "पूर्ण ($doneCount)",
+                        "NAGA" to "नागा ($nagaCount)",
+                        "ALTERNATE" to "आज नहीं ($altCount)"
+                    ).forEach { (key, label) ->
+                        val isSelected = selectedFilter == key
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedFilter = key },
+                            label = { Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp)
                         )
                     }
                 }
-            }
 
-            IconButton(
-                onClick = onNextDay,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Icon(Icons.Default.ChevronRight, contentDescription = "Next Day", tint = colorScheme.primary)
-            }
-        }
-    }
-}
+                Spacer(modifier = Modifier.height(8.dp))
 
-@Composable
-private fun FilterChipsRow(
-    activeFilter: DailyFilter,
-    onFilterSelected: (DailyFilter) -> Unit
-) {
-    val scrollState = rememberScrollState()
-    val colorScheme = MaterialTheme.colorScheme
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(scrollState)
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        DailyFilter.values().forEach { filter ->
-            val isSelected = activeFilter == filter
-            val label = when (filter) {
-                DailyFilter.ALL -> "All"
-                DailyFilter.PENDING -> "Pending"
-                DailyFilter.DONE -> "Done ✓"
-                DailyFilter.NAGA -> "Naga (नागा)"
-                DailyFilter.ALTERNATE -> "Alternate"
-                DailyFilter.PAYMENT_PENDING -> "Payment Pending"
-                DailyFilter.DUE -> "Due"
-                DailyFilter.ADVANCE -> "Advance"
-            }
-
-            FilterChip(
-                selected = isSelected,
-                onClick = { onFilterSelected(filter) },
-                label = {
-                    Text(
-                        text = label,
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                    )
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = colorScheme.primary,
-                    selectedLabelColor = colorScheme.onPrimary,
-                    containerColor = colorScheme.surface,
-                    labelColor = colorScheme.onSurface
-                ),
-                shape = RoundedCornerShape(8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun DailyCustomerCard(
-    item: DailyCustomerCardItem,
-    onQuantityChanged: (String) -> Unit,
-    onCashChanged: (String) -> Unit,
-    onUseSuggestedMilk: (Double) -> Unit,
-    onSaveClicked: () -> Unit,
-    onNagaClicked: () -> Unit,
-    onKhataClicked: () -> Unit,
-    onPbsEditClicked: () -> Unit,
-    onNextClicked: () -> Unit,
-    onCallClicked: () -> Unit,
-    onNotesClicked: () -> Unit = {},
-    onOneTapPayment: (Double) -> Unit = {},
-    onEditCustomerClicked: (CustomerEntity) -> Unit = {},
-    onMilkEditClicked: () -> Unit = {},
-    onBillEditClicked: () -> Unit = {},
-    onDueEditClicked: () -> Unit = {},
-    onAdvanceEditClicked: () -> Unit = {}
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    var isExpanded by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                width = if (item.isDone) 1.5.dp else 1.dp,
-                color = if (item.isDone) colorScheme.primary.copy(alpha = 0.8f) else colorScheme.outlineVariant,
-                shape = RoundedCornerShape(12.dp)
-            ),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp)
-                .animateContentSize()
-        ) {
-            // 1. HEADER ROW: Route #, Name, Status, Badges
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Route # Avatar
+                // Customer list
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .height(380.dp)
                 ) {
-                    Text(
-                        text = "#${item.routeIndex + 1}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.5.sp,
-                        color = colorScheme.primary
+                    if (filteredList.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("कोई ग्राहक नहीं मिला", fontSize = 13.sp, color = Color(0xFF64748B))
+                        }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(filteredList, key = { it.customer.id }) { item ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (item.isDone) Color(0xFFF0FDF4) else if (item.isNaga) Color(0xFFFEF2F2) else Color(0xFFF8FAFC),
+                                    border = BorderStroke(1.dp, if (item.isDone) Color(0xFFBBF7D0) else if (item.isNaga) Color(0xFFFECACA) else Color(0xFFE2E8F0)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onSelectCustomer(item.customer.id) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "#${item.routeIndex + 1}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(10.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = item.customer.name,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF0F172A)
+                                                )
+                                                if (item.customer.phone.isNotBlank()) {
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("📞", fontSize = 11.sp)
+                                                }
+                                            }
+                                            Text(
+                                                text = "तय: %.1fL • ₹%.0f/L".format(item.customer.defaultLiters, item.applicableRate),
+                                                fontSize = 11.sp,
+                                                color = Color(0xFF64748B)
+                                            )
+                                        }
+
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            if (item.isDone) {
+                                                Text("पूर्ण ✓", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                                                Text("दूध %.1fL".format(item.delivery?.liters ?: 0.0), fontSize = 10.sp, color = Color(0xFF15803D))
+                                            } else if (item.isNaga) {
+                                                Text("नागा ✗", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                                            } else if (item.isAlternateOff) {
+                                                Text("आज नहीं (Alt)", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFFD97706))
+                                            } else {
+                                                Text("बाकी", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                                            }
+
+                                            if (item.advance > 0) {
+                                                Text("एडवांस ₹%.0f".format(item.advance), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                                            } else if (item.remainingDue > 0) {
+                                                Text("बकाया ₹%.0f".format(item.remainingDue), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("बंद करें (Close)")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = MaterialTheme.colorScheme.surface
+    )
+}
+
+/**
+ * TIER 3: QUICK JUMP KEYPAD DIALOG (PANEL 4)
+ * Allows the runner to jump directly to any customer by number (1..46) or by Mohalla.
+ */
+@Composable
+fun QuickJumpKeypadDialog(
+    cards: List<DailyCustomerCardItem>,
+    onSelectCustomer: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Number, 1: Mohalla
+    var numberInput by remember { mutableStateOf("") }
+    val colorScheme = MaterialTheme.colorScheme
+
+    val enteredNumber = numberInput.toIntOrNull()
+    val previewItem = if (enteredNumber != null && enteredNumber in 1..cards.size) {
+        cards[enteredNumber - 1]
+    } else null
+
+    val uniqueMohallas = remember(cards) {
+        cards.map { it.customer.mohalla.ifBlank { "सामान्य" } }.distinct().sorted()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Customer पर Jump करें", fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Tab Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        label = { Text("नंबर से (Number)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = colorScheme.primary,
+                            selectedLabelColor = Color.White
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        label = { Text("मोहल्ला से (Area)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = colorScheme.primary,
+                            selectedLabelColor = Color.White
+                        ),
+                        modifier = Modifier.weight(1f)
                     )
                 }
 
+                if (selectedTab == 0) {
+                    // Number display field
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = colorScheme.surfaceVariant,
+                        border = BorderStroke(1.5.dp, colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (numberInput.isEmpty()) "नंबर दर्ज करें (1 - ${cards.size})" else "#$numberInput",
+                                fontSize = if (numberInput.isEmpty()) 13.sp else 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (numberInput.isEmpty()) colorScheme.onSurfaceVariant else colorScheme.primary
+                            )
+                            if (numberInput.isNotEmpty()) {
+                                IconButton(onClick = { numberInput = "" }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    // Numeric Keypad Grid (1..9, 0, Backspace, Go)
+                    val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "GO")
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (row in 0 until 4) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (col in 0 until 3) {
+                                    val key = keys[row * 3 + col]
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = when (key) {
+                                            "GO" -> Color(0xFF15803D)
+                                            "⌫" -> colorScheme.surfaceContainerHighest
+                                            else -> colorScheme.surfaceContainerHigh
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(44.dp)
+                                            .clickable {
+                                                when (key) {
+                                                    "⌫" -> if (numberInput.isNotEmpty()) numberInput = numberInput.dropLast(1)
+                                                    "GO" -> {
+                                                        if (previewItem != null) {
+                                                            onSelectCustomer(previewItem.customer.id)
+                                                            onDismiss()
+                                                        }
+                                                    }
+                                                    else -> {
+                                                        if (numberInput.length < 3) numberInput += key
+                                                    }
+                                                }
+                                            }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = key,
+                                                fontSize = 17.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (key == "GO") Color.White else colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Live Customer Preview Banner
+                    if (previewItem != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = BorderStroke(1.dp, Color(0xFF93C5FD)),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                onSelectCustomer(previewItem.customer.id)
+                                onDismiss()
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(8.dp).clip(CircleShape).background(
+                                        when {
+                                            previewItem.isDone -> Color(0xFF15803D)
+                                            previewItem.isNaga -> Color(0xFFDC2626)
+                                            else -> Color(0xFF2563EB)
+                                        }
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "#${previewItem.routeIndex + 1} ${previewItem.customer.name}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1E3A8A)
+                                    )
+                                    Text(
+                                        text = "${previewItem.customer.mohalla} • ${previewItem.customer.defaultLiters}L",
+                                        fontSize = 11.5.sp,
+                                        color = colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        onSelectCustomer(previewItem.customer.id)
+                                        onDismiss()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)
+                                ) {
+                                    Text("JUMP", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Mohalla Tab
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().height(260.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(uniqueMohallas) { mohalla ->
+                            val mohallaCustomers = cards.filter { it.customer.mohalla.ifBlank { "सामान्य" } == mohalla }
+                            val firstInMohalla = mohallaCustomers.firstOrNull()
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colorScheme.surfaceVariant,
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    if (firstInMohalla != null) {
+                                        onSelectCustomer(firstInMohalla.customer.id)
+                                        onDismiss()
+                                    }
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(mohalla, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                    Text("${mohallaCustomers.size} ग्राहक", fontSize = 12.sp, color = colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {}
+    )
+}
+
+/**
+ * TIER 2: SLIDE-OUT SIDE MINI TRAY WITH FAST THUMB SCRUBBER (PANELS 1 & 2)
+ * Slide-out drawer showing all 46 customers with status dots and a vertical drag scrubber.
+ */
+@Composable
+fun RunnerSideTrayWithScrubber(
+    cards: List<DailyCustomerCardItem>,
+    currentItemId: Long?,
+    onSelectCustomer: (Long) -> Unit,
+    onScrubberBubbleChanged: (String?) -> Unit,
+    onClose: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredCards = remember(cards, searchQuery) {
+        if (searchQuery.isBlank()) cards
+        else cards.filter {
+            it.customer.name.contains(searchQuery, ignoreCase = true) ||
+            it.customer.mohalla.contains(searchQuery, ignoreCase = true) ||
+            (it.routeIndex + 1).toString().contains(searchQuery)
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable { onClose() }
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(0.68f)
+                .align(Alignment.CenterEnd)
+                .clickable(enabled = false) {}, // prevent click-through
+            color = colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+            border = BorderStroke(1.dp, colorScheme.outlineVariant),
+            shadowElevation = 8.dp
+        ) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Main Drawer Content
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(10.dp)
+                ) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("सभी ग्राहक", fontSize = 15.sp, fontWeight = FontWeight.Black)
+                            Text("${cards.size} में से ग्राहक चुनें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Search field
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("नाम, गली या #...", fontSize = 12.sp) },
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        textStyle = TextStyle(fontSize = 12.5.sp)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Customer List
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        itemsIndexed(filteredCards) { idx, item ->
+                            val isCurrent = item.customer.id == currentItemId
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = when {
+                                    isCurrent -> colorScheme.primaryContainer
+                                    item.isDone -> Color(0xFFF0FDF4)
+                                    item.isNaga -> Color(0xFFFEF2F2)
+                                    else -> colorScheme.surfaceContainerLow
+                                },
+                                border = BorderStroke(
+                                    if (isCurrent) 1.5.dp else 0.5.dp,
+                                    if (isCurrent) colorScheme.primary else colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onSelectCustomer(item.customer.id)
+                                        onClose()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Status Dot
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                when {
+                                                    item.isDone -> Color(0xFF15803D)
+                                                    item.isNaga -> Color(0xFFDC2626)
+                                                    else -> Color(0xFF9CA3AF)
+                                                }
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "#${item.routeIndex + 1} ${item.customer.name}",
+                                            fontSize = 12.5.sp,
+                                            fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold,
+                                            color = if (isCurrent) colorScheme.primary else colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "${item.customer.mohalla} • ${item.customer.defaultLiters}L",
+                                            fontSize = 10.5.sp,
+                                            color = colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (item.isDone) {
+                                        Text("✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // VERTICAL FAST THUMB SCRUBBER (PANEL 1)
+                var scrubberHeightPx by remember { mutableFloatStateOf(1f) }
+                Surface(
+                    color = colorScheme.surfaceContainerHigh,
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(32.dp)
+                        .onGloballyPositioned { layoutCoordinates ->
+                            scrubberHeightPx = layoutCoordinates.size.height.toFloat()
+                        }
+                        .pointerInput(cards) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    val fraction = (offset.y / scrubberHeightPx).coerceIn(0f, 0.999f)
+                                    val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
+                                    val targetCard = cards[targetIdx]
+                                    onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    val fraction = (change.position.y / scrubberHeightPx).coerceIn(0f, 0.999f)
+                                    val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
+                                    val targetCard = cards[targetIdx]
+                                    onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
+                                },
+                                onDragEnd = {
+                                    onScrubberBubbleChanged(null)
+                                },
+                                onDragCancel = {
+                                    onScrubberBubbleChanged(null)
+                                }
+                            )
+                        }
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(vertical = 4.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        val step = (cards.size / 8).coerceAtLeast(1)
+                        for (i in 0 until cards.size step step) {
+                            Text(
+                                text = "${i + 1}",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CashCustomerDialog(
+    onDismiss: () -> Unit,
+    onSaveAndDeliver: (name: String, milkType: String, liters: Double, rate: Double, cash: Double) -> Unit
+) {
+    var name by remember { mutableStateOf("नकद ग्राहक") }
+    var milkType by remember { mutableStateOf("भैंस") }
+    var litersText by remember { mutableStateOf("1.0") }
+    var rate by remember { mutableFloatStateOf(70f) }
+    var customRateText by remember { mutableStateOf("") }
+    var isCustomRate by remember { mutableStateOf(false) }
+
+    val currentLiters = litersText.toDoubleOrNull() ?: 1.0
+    val activeRate = if (isCustomRate) (customRateText.toDoubleOrNull() ?: rate.toDouble()) else rate.toDouble()
+    val totalBill = CalculationEngine.round2(currentLiters * activeRate)
+    var cashText by remember { mutableStateOf("") }
+
+    LaunchedEffect(totalBill) {
+        if (cashText.isBlank() || cashText == "0") {
+            cashText = "%.0f".format(Locale.US, totalBill)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = item.customer.name,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurface
-                        )
-                        if (item.hasUnsavedChanges) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFE65100))
-                            )
-                        }
-                        if (item.customer.phone.isNotBlank()) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.Call,
-                                contentDescription = "Call",
-                                tint = colorScheme.primary,
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .clickable { onCallClicked() }
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.Tune,
-                            contentDescription = "Edit Customer Master",
-                            tint = colorScheme.primary,
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clickable { onEditCustomerClicked(item.customer) }
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "ID: #${item.customer.id} • ${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}${if (item.routeName.isNotBlank()) " • 📍 ${item.routeName}" else ""}",
-                            fontSize = 11.5.sp,
-                            color = colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-
-                Column(horizontalAlignment = Alignment.End) {
-                    StatusBadge(status = item.statusText)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                        MilkTypeBadge(milkType = item.customer.milkType)
-                        RateBadge(rate = item.applicableRate)
-                    }
-                }
+                Text("नकद / गेस्ट ग्राहक डिलीवरी", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // PINNED CUSTOMER NOTE BADGE
-            if (item.pinnedNote != null) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFFFEF3C7),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNotesClicked() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("📌", fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = item.pinnedNote,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF92400E),
-                            maxLines = 1
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            // 2. MILK QUANTITY & BILL ROW
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Editable Milk Quantity
-                Column(modifier = Modifier.weight(1.3f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onMilkEditClicked() }
-                    ) {
-                        Text(
-                            text = "MILK QUANTITY",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurfaceVariant,
-                            letterSpacing = 0.4.sp
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit Milk",
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(11.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    OutlinedTextField(
-                        value = item.currentMilkInput,
-                        onValueChange = onQuantityChanged,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        suffix = { Text("L", fontWeight = FontWeight.Bold, color = colorScheme.primary) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = colorScheme.surfaceContainer,
-                            unfocusedContainerColor = colorScheme.surfaceContainer,
-                            focusedBorderColor = colorScheme.primary,
-                            unfocusedBorderColor = colorScheme.outlineVariant
-                        ),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurface
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                // Quick Increment Steppers
-                Column(modifier = Modifier.weight(0.7f)) {
-                    Text(
-                        text = "QUICK",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colorScheme.surfaceContainerHigh)
-                                .clickable {
-                                    val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
-                                    onQuantityChanged("%.2f".format(Locale.US, (curr + 0.5)))
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("+0.5", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colorScheme.surfaceContainerHigh)
-                                .clickable {
-                                    val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
-                                    onQuantityChanged("%.2f".format(Locale.US, (curr + 1.0)))
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("+1.0", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        }
-                    }
-                }
-
-                // Today's Bill Box (Clickable for custom override)
-                Column(
-                    modifier = Modifier
-                        .weight(1.1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colorScheme.primaryContainer.copy(alpha = 0.5f))
-                        .clickable { onBillEditClicked() }
-                        .padding(horizontal = 8.dp, vertical = 6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "TODAY BILL",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onPrimaryContainer
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Override Bill",
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(10.dp)
-                        )
-                    }
-                    Text(
-                        text = CalculationEngine.formatMoney(item.todayBill),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    Text(
-                        text = "@ ₹%.0f/L".format(item.applicableRate),
-                        fontSize = 9.5.sp,
-                        color = colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-
-            // 3. FLEXIBLE CASH -> MILK CONVERSION CHIP (For Daily Cash Customers)
-            if (item.suggestedMilkFromCash != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
+                // Name
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("ग्राहक का नाम", fontSize = 12.sp) },
+                    singleLine = true,
                     shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.primaryContainer.copy(alpha = 0.5f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onUseSuggestedMilk(item.suggestedMilkFromCash) }
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Milk type
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "💡 Cash ₹${item.currentCashInput} = %.2f L Milk".format(item.suggestedMilkFromCash),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                        Text(
-                            text = "USE %.2f L ▶".format(item.suggestedMilkFromCash),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
+                    listOf("भैंस", "गाय").forEach { type ->
+                        val isSel = milkType == type
+                        FilterChip(
+                            selected = isSel,
+                            onClick = { milkType = type },
+                            label = { Text(type, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // 4. FINANCIAL BREAKDOWN ROW: Prev Due, Total Required, Cash Input
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Previous Due (Clickable to Reconcile / Adjust)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colorScheme.surfaceContainer)
-                        .border(0.5.dp, colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                        .clickable { onDueEditClicked() }
-                        .padding(horizontal = 6.dp, vertical = 5.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "PREV DUE",
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurfaceVariant
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Reconcile Due",
-                            tint = colorScheme.primary,
-                            modifier = Modifier.size(9.dp)
-                        )
-                    }
-                    Text(
-                        text = CalculationEngine.formatMoney(item.prevDue),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (item.prevDue > 0) StatusRed else colorScheme.onSurface
-                    )
-                }
-
-                // Total Required
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(colorScheme.surfaceContainer, RoundedCornerShape(8.dp))
-                        .border(0.5.dp, colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 6.dp, vertical = 5.dp)
-                ) {
-                    Text(
-                        text = "TOTAL REQ",
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = CalculationEngine.formatMoney(item.totalRequired),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurface
-                    )
-                }
-
-                // Cash Paid Input
-                Column(modifier = Modifier.weight(1.1f)) {
-                    Text(
-                        text = "CASH (नकद)",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    OutlinedTextField(
-                        value = item.currentCashInput,
-                        onValueChange = onCashChanged,
-                        placeholder = { Text("₹ 0", fontSize = 12.sp) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = colorScheme.surfaceContainer,
-                            unfocusedContainerColor = colorScheme.surfaceContainer,
-                            focusedBorderColor = colorScheme.primary,
-                            unfocusedBorderColor = colorScheme.outlineVariant
-                        ),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            // ONE-TAP QUICK PAYMENT RECONCILIATION ROW
-            if (item.prevDue > 0) {
-                Spacer(modifier = Modifier.height(5.dp))
+                // Liters
+                Text("दूध की मात्रा (लीटर)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "⚡ Quick:",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = colorScheme.primaryContainer,
-                        modifier = Modifier.clickable { onOneTapPayment(item.prevDue) }
+                    Button(
+                        onClick = {
+                            val curr = litersText.toDoubleOrNull() ?: 1.0
+                            val nextVal = (curr - 0.5).coerceAtLeast(0.5)
+                            litersText = "%.2f".format(Locale.US, nextVal)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)
                     ) {
-                        Text(
-                            text = "Pay Full ₹%.0f".format(item.prevDue),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
+                        Text("-0.5L", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
-                    if (item.prevDue >= 100.0) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.clickable { onOneTapPayment(100.0) }
-                        ) {
-                            Text(
-                                text = "Pay ₹100",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
-                    if (item.prevDue >= 500.0) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.clickable { onOneTapPayment(500.0) }
-                        ) {
-                            Text(
-                                text = "Pay ₹500",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            )
-                        }
+
+                    OutlinedTextField(
+                        value = litersText,
+                        onValueChange = { litersText = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        suffix = { Text("L", fontWeight = FontWeight.Bold) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Button(
+                        onClick = {
+                            val curr = litersText.toDoubleOrNull() ?: 1.0
+                            litersText = "%.2f".format(Locale.US, curr + 0.5)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Text("+0.5L", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
-            }
 
-            // 5. NET DUE / ADVANCE BANNER (Clickable for direct reconciliation)
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(
-                        if (item.advance > 0) colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        else if (item.remainingDue > 0) colorScheme.errorContainer.copy(alpha = 0.4f)
-                        else colorScheme.surfaceContainer
-                    )
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (item.advance > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onAdvanceEditClicked() }
-                    ) {
-                        Text(text = "Advance: ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
-                        Text(text = CalculationEngine.formatMoney(item.advance), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Advance", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
-                    }
-                } else if (item.remainingDue > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onDueEditClicked() }
-                    ) {
-                        Text(text = "Remaining Due (बकाया): ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.error)
-                        Text(text = CalculationEngine.formatMoney(item.remainingDue), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.error)
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Icon(Icons.Default.Edit, contentDescription = "Reconcile Due", tint = colorScheme.error, modifier = Modifier.size(10.dp))
-                    }
-                } else {
-                    Text(text = "Balance:", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
-                    Text(text = "₹0 (Cleared ✓)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                }
-
-                // Expand details chevron
-                IconButton(
-                    onClick = { isExpanded = !isExpanded },
-                    modifier = Modifier.size(20.dp)
+                // Rate presets
+                Text("रेट तय करें", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = "Expand Details",
-                        tint = colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-
-            // EXPANDABLE DETAILS (With PBS Manual Record Display)
-            AnimatedVisibility(visible = isExpanded) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp, bottom = 2.dp)
-                ) {
-                    if (item.lastPaymentDate != null && item.lastPaymentAmount != null) {
-                        Text(
-                            text = "• Last Payment: ₹%.0f on %s (%s)".format(
-                                item.lastPaymentAmount,
-                                CalculationEngine.formatDateDisplay(item.lastPaymentDate),
-                                item.lastPaymentMode ?: "Cash"
+                    listOf(70f, 65f, 60f).forEach { rPreset ->
+                        val isSel = !isCustomRate && rate == rPreset
+                        FilterChip(
+                            selected = isSel,
+                            onClick = {
+                                isCustomRate = false
+                                rate = rPreset
+                            },
+                            label = { Text("₹%.0f".format(rPreset), fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF15803D),
+                                selectedLabelColor = Color.White
                             ),
-                            fontSize = 11.sp,
-                            color = colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            text = "• No previous payments recorded",
-                            fontSize = 11.sp,
-                            color = colorScheme.onSurfaceVariant
+                            shape = RoundedCornerShape(8.dp)
                         )
                     }
-                    Text(
-                        text = "• Billing: ${if (item.customer.billingType == "daily_cash") "Daily Cash" else "Monthly Khata"} | Route Order #${item.customer.routeOrder}",
-                        fontSize = 11.sp,
-                        color = colorScheme.onSurfaceVariant
+                    FilterChip(
+                        selected = isCustomRate,
+                        onClick = { isCustomRate = true },
+                        label = { Text("Custom", fontWeight = if (isCustomRate) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF0284C7),
+                            selectedLabelColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp)
                     )
+                }
 
-                    // PBS External Record Row
-                    Spacer(modifier = Modifier.height(2.dp))
+                if (isCustomRate) {
+                    OutlinedTextField(
+                        value = customRateText,
+                        onValueChange = { customRateText = it },
+                        label = { Text("कस्टम रेट (₹/लीटर)", fontSize = 12.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Bill Box
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "• External Book / PBS Pending: ${CalculationEngine.formatMoney(item.pbsPending)}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (item.pbsPending > 0) Color(0xFFC2410C) else colorScheme.onSurfaceVariant
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable { onPbsEditClicked() }
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit PBS",
-                                tint = colorScheme.primary,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "Edit",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.primary
-                            )
-                        }
+                        Text("कुल बिल:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                        Text("₹%.0f".format(totalBill), fontSize = 16.sp, fontWeight = FontWeight.Black, color = Color(0xFF1E40AF))
                     }
                 }
+
+                // Cash Received
+                OutlinedTextField(
+                    value = cashText,
+                    onValueChange = { cashText = it },
+                    label = { Text("नकद प्राप्त (₹)", fontSize = 12.sp) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // 6. ACTION BUTTONS ROW (With Next Customer Jump)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val cashPaid = cashText.toDoubleOrNull() ?: totalBill
+                    onSaveAndDeliver(name.ifBlank { "नकद ग्राहक" }, milkType, currentLiters, activeRate, cashPaid)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                shape = RoundedCornerShape(8.dp)
             ) {
-                // View Khata Button
-                OutlinedButton(
-                    onClick = onKhataClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.size(width = 40.dp, height = 40.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.History,
-                        contentDescription = "Khata",
-                        tint = colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                // Customer Notes Button
-                OutlinedButton(
-                    onClick = onNotesClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(40.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.EditNote,
-                        contentDescription = "Notes",
-                        tint = if (item.notesCount > 0) colorScheme.primary else colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    if (item.notesCount > 0) {
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "${item.notesCount}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                    }
-                }
-
-                // Naga / Skip Button
-                OutlinedButton(
-                    onClick = onNagaClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (item.isNaga) Color.White else colorScheme.error,
-                        containerColor = if (item.isNaga) colorScheme.error else Color.Transparent
-                    ),
-                    modifier = Modifier.height(40.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = if (item.isNaga) "NAGA ✓" else "Naga",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Primary Deliver & Save Button
-                Button(
-                    onClick = onSaveClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (item.isDone) colorScheme.secondary else colorScheme.primary
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (item.isDone) "SAVED ✓" else "DELIVER & SAVE",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Fast Next Customer Jump
-                OutlinedButton(
-                    onClick = onNextClicked,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(40.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
-                ) {
-                    Text("Next", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = "Next Customer",
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+                Text("✓ तुरंत दें और जोड़ें", fontWeight = FontWeight.Bold)
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("रद्द करें")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = MaterialTheme.colorScheme.surface
+    )
 }
 
 @Composable
@@ -2010,6 +2081,10 @@ fun DailyTaskRunnerCard(
     onCashChanged: (String) -> Unit,
     onUseSuggestedMilk: (Double) -> Unit,
     onSaveClicked: () -> Unit,
+    onRateSelected: (Double) -> Unit = {},
+    onCustomRateClicked: () -> Unit = {},
+    onAiMunshiClicked: () -> Unit = {},
+    onSendWhatsAppReminder: () -> Unit = {},
     onNagaClicked: () -> Unit,
     onAlternateClicked: () -> Unit = {},
     onUndoClicked: () -> Unit = {},
@@ -2023,741 +2098,545 @@ fun DailyTaskRunnerCard(
     onBillEditClicked: () -> Unit = {},
     onDueEditClicked: () -> Unit = {},
     onAdvanceEditClicked: () -> Unit = {},
-    onMoreClicked: () -> Unit = {}
+    onMoreClicked: () -> Unit = {},
+    onCustomerNumberClicked: () -> Unit = {},
+    onSkipClicked: () -> Unit = {},
+    onWhatsAppReceiptClicked: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
 
-    Card(
+    // Gesture tracking state
+    var totalDragX by remember(item.customer.id) { mutableFloatStateOf(0f) }
+    var totalDragY by remember(item.customer.id) { mutableFloatStateOf(0f) }
+
+    // Accurate Invariant Accounting
+    val milkVal = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+    val rateVal = item.applicableRate
+    val todayBillVal = CalculationEngine.round2(milkVal * rateVal)
+    val existingPbs = if (item.prevDue > 0) item.prevDue else 0.0
+    val existingAdvance = if (item.prevDue < 0) -item.prevDue else 0.0
+    val totalRequiredVal = CalculationEngine.round2(todayBillVal + existingPbs)
+    val cashReceivedVal = item.currentCashInput.toDoubleOrNull() ?: 0.0
+    val netBalance = CalculationEngine.round2(totalRequiredVal - (cashReceivedVal + existingAdvance))
+    val remainingDueVal = if (netBalance > 0) netBalance else 0.0
+    val advanceRemainingVal = if (netBalance < 0) CalculationEngine.round2(-netBalance) else 0.0
+
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(10.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .fillMaxSize()
+            .pointerInput(item.customer.id) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val exactAmt = (totalRequiredVal - existingAdvance).coerceAtLeast(0.0)
+                        onCashChanged("%.0f".format(Locale.US, exactAmt))
+                    }
+                )
+            }
+            .pointerInput(item.customer.id) {
+                detectDragGestures(
+                    onDragStart = {
+                        totalDragX = 0f
+                        totalDragY = 0f
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        totalDragX += dragAmount.x
+                        totalDragY += dragAmount.y
+                    },
+                    onDragEnd = {
+                        val absX = kotlin.math.abs(totalDragX)
+                        val absY = kotlin.math.abs(totalDragY)
+                        val threshold = 90f
+                        if (absX > absY && absX > threshold) {
+                            if (totalDragX < 0) onNext() else onPrev()
+                        } else if (absY >= absX && absY > threshold) {
+                            if (totalDragY > 0) onSaveClicked() else onNagaClicked()
+                        }
+                    }
+                )
+            }
     ) {
-        Column(
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(14.dp)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+            border = BorderStroke(1.5.dp, colorScheme.outlineVariant),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
-            // STEP PROGRESS ROW
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {
-                Column {
-                    Text(
-                        text = "Customer ${currentIndex + 1} of $totalCount",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    Text(
-                        text = "Done: $completedCount • Pending: $pendingCount • Naga: $nagaCount",
-                        fontSize = 10.5.sp,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                }
-                StatusBadge(status = item.statusText)
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // CUSTOMER HERO NAME
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "#${item.routeIndex + 1}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = colorScheme.primary
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.customer.name,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurface
-                    )
-                    Text(
-                        text = "ID: #${item.customer.id} • ${item.customer.mohalla} ${if (item.customer.landmark.isNotBlank()) "• ${item.customer.landmark}" else ""}${if (item.routeName.isNotBlank()) " • 📍 ${item.routeName}" else ""}",
-                        fontSize = 12.sp,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                }
-
-                IconButton(onClick = { onEditCustomerClicked(item.customer) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Tune, contentDescription = "Edit Master", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
-                }
-                IconButton(onClick = onKhataClicked, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.History, contentDescription = "Khata", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
-                }
-                if (item.customer.phone.isNotBlank()) {
-                    IconButton(onClick = onCallClicked, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
-                    }
-                }
-                IconButton(onClick = onMoreClicked, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More Actions", tint = colorScheme.primary, modifier = Modifier.size(20.dp))
-                }
-            }
-
-            // PINNED CUSTOMER NOTE BADGE (Runner Mode)
-            if (item.pinnedNote != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFEF3C7),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFF59E0B)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNotesClicked() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("📌", fontSize = 11.5.sp)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = item.pinnedNote,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF92400E)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = colorScheme.outlineVariant)
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // BIG MILK QUANTITY CONTROL
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                // 1. CUSTOMER HEADER ROW
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onMilkEditClicked() }
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "DELIVERY MILK (लीटर)",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurfaceVariant,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Milk", tint = colorScheme.primary, modifier = Modifier.size(12.dp))
-                }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = item.currentMilkInput,
-                    onValueChange = onQuantityChanged,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    suffix = { Text("L", fontWeight = FontWeight.Bold, color = colorScheme.primary) },
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.onSurface
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Quick buttons
-                Button(
-                    onClick = {
-                        val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
-                        val nextVal = (curr - 0.5).coerceAtLeast(0.5)
-                        onQuantityChanged("%.2f".format(Locale.US, nextVal))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
-                ) {
-                    Text("-0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
-                Button(
-                    onClick = {
-                        val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
-                        onQuantityChanged("%.2f".format(Locale.US, (curr + 0.5)))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
-                ) {
-                    Text("+0.5L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-
-                Button(
-                    onClick = {
-                        val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
-                        onQuantityChanged("%.2f".format(Locale.US, (curr + 1.0)))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceContainerHigh),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)
-                ) {
-                    Text("+1.0L", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                }
-            }
-
-            // FLEXIBLE CASH -> MILK CHIP (In Runner Mode)
-            if (item.suggestedMilkFromCash != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = colorScheme.primaryContainer.copy(alpha = 0.6f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onUseSuggestedMilk(item.suggestedMilkFromCash) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(colorScheme.primaryContainer)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onCustomerNumberClicked()
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "💡 Cash ₹${item.currentCashInput} = %.2f L Milk (@ ₹%.0f/L)".format(
-                                item.suggestedMilkFromCash,
-                                item.applicableRate
+                            text = "#${item.routeIndex + 1}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = item.customer.name,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            StatusBadge(status = item.statusText)
+                        }
+                        Text(
+                            text = "ID: #${item.customer.id} • ${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""}",
+                            fontSize = 11.5.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    // Action icon buttons
+                    if (item.customer.phone.isNotBlank()) {
+                        IconButton(onClick = onCallClicked, modifier = Modifier.size(34.dp)) {
+                            Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary, modifier = Modifier.size(19.dp))
+                        }
+                    }
+                    IconButton(onClick = onKhataClicked, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.History, contentDescription = "Khata", tint = colorScheme.primary, modifier = Modifier.size(19.dp))
+                    }
+                    IconButton(onClick = onMoreClicked, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More", tint = colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                    }
+                }
+
+                // PINNED NOTE (If present)
+                if (item.pinnedNote != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFFEF3C7),
+                        border = BorderStroke(0.5.dp, Color(0xFFF59E0B)),
+                        modifier = Modifier.fillMaxWidth().clickable { onNotesClicked() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("📌 ${item.pinnedNote}", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF92400E))
+                        }
+                    }
+                }
+
+                // YESTERDAY SUMMARY (Compact 1-liner)
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (item.yesterdayWasNaga) {
+                        Text("कल: नागा (0L)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                    } else if (item.yesterdayDeliveredLiters != null && item.yesterdayDeliveredLiters > 0.0) {
+                        Text(
+                            "कल: ${item.yesterdayDeliveredLiters}L • बिल ₹%.0f • नकद ₹%.0f".format(
+                                item.yesterdayBill ?: 0.0,
+                                item.yesterdayPaidCash ?: 0.0
                             ),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colorScheme.onSurfaceVariant
                         )
-                        Text(
-                            text = "USE %.2f L ▶".format(item.suggestedMilkFromCash),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
+                    } else {
+                        Text("कल: 0L", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = colorScheme.outlineVariant, thickness = 0.5.dp)
+                Spacer(modifier = Modifier.height(6.dp))
 
-            // BILL & CASH INPUT ROW
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Today's Bill Box (Clickable to override)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colorScheme.primaryContainer.copy(alpha = 0.5f))
-                        .clickable { onBillEditClicked() }
-                        .padding(8.dp)
+                // 2. RATE PRESETS SELECTOR (1-Tap: ₹70, ₹65, ₹60, Custom)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("BILL TODAY", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onPrimaryContainer)
-                        Icon(Icons.Default.Edit, contentDescription = "Override Bill", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
+                    Text("रेट:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                    listOf(70.0, 65.0, 60.0).forEach { rPreset ->
+                        val isSel = item.applicableRate == rPreset
+                        FilterChip(
+                            selected = isSel,
+                            onClick = { onRateSelected(rPreset) },
+                            label = { Text("₹%.0f".format(rPreset), fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF15803D),
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        )
                     }
-                    Text(CalculationEngine.formatMoney(item.todayBill), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                    Text("@ ₹%.0f/L".format(item.applicableRate), fontSize = 9.5.sp, color = colorScheme.onPrimaryContainer)
-                }
-
-                // Prev Due Box (Clickable to reconcile)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colorScheme.surfaceContainer)
-                        .border(0.5.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                        .clickable { onDueEditClicked() }
-                        .padding(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("PREV DUE", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
-                        Icon(Icons.Default.Edit, contentDescription = "Reconcile Due", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
-                    }
-                    Text(
-                        CalculationEngine.formatMoney(item.prevDue),
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (item.prevDue > 0) StatusRed else colorScheme.onSurface
+                    val isCustom = item.applicableRate != 70.0 && item.applicableRate != 65.0 && item.applicableRate != 60.0
+                    FilterChip(
+                        selected = isCustom,
+                        onClick = onCustomRateClicked,
+                        label = {
+                            Text(
+                                if (isCustom) "₹%.0f (कस्टम)".format(item.applicableRate) else "कस्टम",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF0284C7),
+                            selectedLabelColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(32.dp)
                     )
-                    Text("Total: ${CalculationEngine.formatMoney(item.totalRequired)}", fontSize = 9.5.sp, color = colorScheme.onSurfaceVariant)
                 }
 
-                // CASH RECEIVED
-                Column(modifier = Modifier.weight(1.2f)) {
-                    Text("CASH RECEIVED (₹)", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 3. MILK QUANTITY STEPPERS & TYPING FIELD
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+                            val nextVal = (curr - 0.5).coerceAtLeast(0.0)
+                            onQuantityChanged("%.2f".format(Locale.US, nextVal))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(48.dp)
+                    ) {
+                        Text("-0.5L", color = colorScheme.primary, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    }
+
+                    OutlinedTextField(
+                        value = item.currentMilkInput,
+                        onValueChange = onQuantityChanged,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        suffix = { Text("L", fontWeight = FontWeight.Bold, color = colorScheme.primary, fontSize = 16.sp) },
+                        textStyle = TextStyle(fontSize = 22.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurface),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).height(52.dp)
+                    )
+
+                    Button(
+                        onClick = {
+                            val curr = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+                            onQuantityChanged("%.2f".format(Locale.US, curr + 0.5))
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp),
+                        modifier = Modifier.height(48.dp)
+                    ) {
+                        Text("+0.5L", color = colorScheme.primary, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Quick Quantity Chips: 0.5L, 1L, 1.5L, 2L, 2.5L (Replaced 800g with 0.5L)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    listOf(0.5 to "0.5L", 1.0 to "1L", 1.5 to "1.5L", 2.0 to "2L", 2.5 to "2.5L").forEach { (qPreset, qLabel) ->
+                        val isSelected = (item.currentMilkInput.toDoubleOrNull() ?: 0.0) == qPreset
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onQuantityChanged("%.2f".format(Locale.US, qPreset)) },
+                            label = { Text(qLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colorScheme.primary,
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(32.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 4. SPACIOUS ACCOUNTING GRID (4 Distinct Boxes)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Box 1: आज बिल
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                        modifier = Modifier.weight(1f).height(62.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
+                            Text("आज बिल", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E40AF))
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text("₹%.0f".format(todayBillVal), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF1E40AF))
+                        }
+                    }
+
+                    // Box 2: पुराना PBS
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (existingPbs > 0) Color(0xFFFFF7ED) else colorScheme.surfaceVariant,
+                        border = BorderStroke(1.dp, if (existingPbs > 0) Color(0xFFFED7AA) else colorScheme.outlineVariant),
+                        modifier = Modifier.weight(1f).height(62.dp).clickable { onPbsEditClicked() }
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
+                            Text("पुराना PBS", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (existingPbs > 0) Color(0xFFC2410C) else colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text("₹%.0f".format(existingPbs), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (existingPbs > 0) Color(0xFFC2410C) else colorScheme.onSurface)
+                        }
+                    }
+
+                    // Box 3: कुल देय
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFF8FAFC),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        modifier = Modifier.weight(1f).height(62.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
+                            Text("कुल देय", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text("₹%.0f".format(totalRequiredVal), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF0F172A))
+                        }
+                    }
+
+                    // Box 4: जमा एडवांस (Green if positive)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (existingAdvance > 0) Color(0xFFF0FDF4) else colorScheme.surfaceVariant,
+                        border = BorderStroke(1.dp, if (existingAdvance > 0) Color(0xFFBBF7D0) else colorScheme.outlineVariant),
+                        modifier = Modifier.weight(1f).height(62.dp).clickable { onAdvanceEditClicked() }
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
+                            Text("एडवांस", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (existingAdvance > 0) Color(0xFF15803D) else colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.weight(1f))
+                            Text("₹%.0f".format(existingAdvance), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (existingAdvance > 0) Color(0xFF15803D) else colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 5. CASH RECEIVED ROW & QUICK PILLS (52dp height)
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     OutlinedTextField(
                         value = item.currentCashInput,
                         onValueChange = onCashChanged,
                         placeholder = { Text("0") },
+                        label = { Text("नकद प्राप्त (₹)", fontSize = 10.5.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        ),
+                        textStyle = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D)),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.weight(1.1f).fillMaxHeight()
                     )
-                }
-            }
 
-            // NET DUE / ADVANCE & PBS ROW
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (item.advance > 0) colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        else if (item.remainingDue > 0) colorScheme.errorContainer.copy(alpha = 0.4f)
-                        else colorScheme.surfaceContainer
-                    )
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (item.advance > 0) {
+                    // Quick pills: [₹50] [₹100] [₹200] [Exact]
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onAdvanceEditClicked() }
+                        modifier = Modifier.weight(1.9f).fillMaxHeight(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(text = "Advance: ", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.primary)
-                        Text(text = CalculationEngine.formatMoney(item.advance), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Advance", tint = colorScheme.primary, modifier = Modifier.size(10.dp))
+                        listOf("50", "100", "200").forEach { pVal ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colorScheme.surfaceContainerHigh,
+                                border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                                modifier = Modifier.weight(1f).fillMaxHeight().clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onCashChanged(pVal)
+                                }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text("₹$pVal", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurface)
+                                }
+                            }
+                        }
+
+                        // [Exact / पूरा बिल]
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = BorderStroke(1.5.dp, Color(0xFF93C5FD)),
+                            modifier = Modifier.weight(1.2f).fillMaxHeight().clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val exactAmt = (totalRequiredVal - existingAdvance).coerceAtLeast(0.0)
+                                onCashChanged("%.0f".format(Locale.US, exactAmt))
+                            }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("Exact", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color(0xFF1D4ED8))
+                            }
+                        }
                     }
-                } else if (item.remainingDue > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onDueEditClicked() }
-                    ) {
-                        Text(text = "Remaining Due: ", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = colorScheme.error)
-                        Text(text = CalculationEngine.formatMoney(item.remainingDue), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.error)
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Icon(Icons.Default.Edit, contentDescription = "Reconcile Due", tint = colorScheme.error, modifier = Modifier.size(10.dp))
-                    }
-                } else {
-                    Text(text = "Balance:", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
-                    Text(text = "₹0 (Cleared ✓)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onPbsEditClicked() }
-                ) {
-                    Text(
-                        text = "PBS: ${CalculationEngine.formatMoney(item.pbsPending)}",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFC2410C)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit PBS",
-                        tint = colorScheme.primary,
-                        modifier = Modifier.size(11.dp)
-                    )
-                }
-            }
-
-            // ONE-TAP QUICK PAYMENT RECONCILIATION ROW (Runner Mode)
-            if (item.prevDue > 0) {
+                // 6. NET STATUS SUMMARY
                 Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = when {
+                        advanceRemainingVal > 0 -> Color(0xFFF0FDF4)
+                        remainingDueVal > 0 -> Color(0xFFFEF2F2)
+                        else -> Color(0xFFF8FAFC)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (advanceRemainingVal > 0) {
+                            Text("बचा एडवांस: ₹%.0f (अगले बिल में जमा)".format(advanceRemainingVal), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        } else if (remainingDueVal > 0) {
+                            Text("बाकी बकाया: ₹%.0f".format(remainingDueVal), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                        } else {
+                            Text("हिसाब बराबर ✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        }
+
+                        if (item.suggestedMilkFromCash != null) {
+                            Text(
+                                "💡 नकद = %.2fL".format(item.suggestedMilkFromCash),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary,
+                                modifier = Modifier.clickable { onUseSuggestedMilk(item.suggestedMilkFromCash) }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // 7. BIG ACTION BUTTONS ROW (Naga + Skip + Deliver + WhatsApp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "⚡ Quick:",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colorScheme.primary
-                    )
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = colorScheme.primaryContainer,
-                        modifier = Modifier.clickable { onOneTapPayment(item.prevDue) }
+                    // Naga Button
+                    OutlinedButton(
+                        onClick = onNagaClicked,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (item.isNaga) Color.White else colorScheme.error,
+                            containerColor = if (item.isNaga) colorScheme.error else Color.Transparent
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(0.28f).height(54.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
                     ) {
-                        Text(
-                            text = "Pay Full ₹%.0f".format(item.prevDue),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Text(if (item.isNaga) "NAGA ✓" else "नागा", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
-                    if (item.prevDue >= 100.0) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.clickable { onOneTapPayment(100.0) }
-                        ) {
+
+                    // Skip to Later Button [⏰ बाद में]
+                    OutlinedButton(
+                        onClick = onSkipClicked,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = colorScheme.onSurfaceVariant,
+                            containerColor = colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(0.28f).height(54.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(15.dp), tint = colorScheme.onSurfaceVariant)
+                            Text("बाद में", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Deliver Button
+                    Button(
+                        onClick = onSaveClicked,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(0.44f).height(54.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(17.dp))
                             Text(
-                                text = "Pay ₹100",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                text = if (item.isDone) "SAVED ✓" else "डिलीवर ✓",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White
                             )
                         }
                     }
-                    if (item.prevDue >= 500.0) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.clickable { onOneTapPayment(500.0) }
-                        ) {
-                            Text(
-                                text = "Pay ₹500",
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            )
+
+                    // 1-Tap WhatsApp Receipt Button
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF25D366),
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clickable { onWhatsAppReceiptClicked() }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Share, contentDescription = "WhatsApp Receipt", tint = Color.White, modifier = Modifier.size(24.dp))
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // PRIMARY DELIVER & SAVE BUTTON
-            Button(
-                onClick = onSaveClicked,
-                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-            ) {
-                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = if (item.isDone) "SAVED ✓ (UPDATE)" else "DELIVER & SAVE",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // RUNNER DELIVERY STATUS ROW (Naga, Alternate, Undo)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onNagaClicked,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (item.isNaga) Color.White else colorScheme.error,
-                        containerColor = if (item.isNaga) colorScheme.error else Color.Transparent
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                // 8. SUBTLE GESTURE HINT
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text(if (item.isNaga) "NAGA ✓" else "Naga", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = onAlternateClicked,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (item.isAlternateOff) Color.White else Color(0xFFD97706),
-                        containerColor = if (item.isAlternateOff) Color(0xFFD97706) else Color.Transparent
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-                ) {
-                    Text(if (item.isAlternateOff) "ALT OFF ✓" else "Alternate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = onUndoClicked,
-                    enabled = item.isDone || item.isNaga,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
-                ) {
-                    Icon(Icons.Default.Undo, contentDescription = "Undo", modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text("Undo", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // RUNNER NAVIGATION ROW
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onPrev,
-                    enabled = currentIndex > 0,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp)
-                ) {
-                    Icon(Icons.Default.ChevronLeft, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Previous", fontSize = 12.sp)
-                }
-
-                OutlinedButton(
-                    onClick = onNext,
-                    enabled = currentIndex < totalCount - 1,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(38.dp)
-                ) {
-                    Text("Next", fontSize = 12.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Text(
+                        text = "👈 पिछला | अगला 👉 | ⬇️ डिलीवरी | ⬆️ नागा | 👆👆 Exact",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
                 }
             }
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// 1. ROUTE REORDER & ORDERING DIALOG
-// ---------------------------------------------------------------------------
-@Composable
-fun RouteReorderDialog(
-    initialCustomers: List<CustomerEntity>,
-    onDismiss: () -> Unit,
-    onSaveOrder: (List<CustomerEntity>) -> Unit
-) {
-    val colorScheme = MaterialTheme.colorScheme
-    var currentList by remember(initialCustomers) { mutableStateOf(initialCustomers) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SwapVert, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(22.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Route Order Manager", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                }
-                Text(
-                    text = "${currentList.size} Customers",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colorScheme.onSurfaceVariant
-                )
-            }
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Use ▲ / ▼ to reorder delivery route. Route # updates without changing Customer IDs.",
-                    fontSize = 11.5.sp,
-                    color = colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Sort Presets Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colorScheme.surfaceVariant,
-                        modifier = Modifier.clickable { currentList = initialCustomers }
-                    ) {
-                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colorScheme.surfaceVariant,
-                        modifier = Modifier.clickable { currentList = currentList.sortedBy { it.name } }
-                    ) {
-                        Text("Sort: Name", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colorScheme.surfaceVariant,
-                        modifier = Modifier.clickable { currentList = currentList.sortedWith(compareBy({ it.mohalla }, { it.name })) }
-                    ) {
-                        Text("Sort: Mohalla", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = colorScheme.surfaceVariant,
-                        modifier = Modifier.clickable { currentList = currentList.sortedBy { it.id } }
-                    ) {
-                        Text("Sort: ID", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Reorderable list
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(340.dp)
-                        .background(colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                        .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                        .padding(6.dp)
-                ) {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(currentList, key = { it.id }) { customer ->
-                            val index = currentList.indexOf(customer)
-                            Card(
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(26.dp)
-                                            .clip(CircleShape)
-                                            .background(colorScheme.primaryContainer),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "#${index + 1}",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            color = colorScheme.primary
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = customer.name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.5.sp,
-                                            color = colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "ID: #${customer.id} • ${customer.mohalla}",
-                                            fontSize = 10.5.sp,
-                                            color = colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    // Up arrow
-                                    IconButton(
-                                        onClick = {
-                                            if (index > 0) {
-                                                val mutable = currentList.toMutableList()
-                                                val item = mutable.removeAt(index)
-                                                mutable.add(index - 1, item)
-                                                currentList = mutable
-                                            }
-                                        },
-                                        enabled = index > 0,
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
-                                    }
-
-                                    // Down arrow
-                                    IconButton(
-                                        onClick = {
-                                            if (index < currentList.size - 1) {
-                                                val mutable = currentList.toMutableList()
-                                                val item = mutable.removeAt(index)
-                                                mutable.add(index + 1, item)
-                                                currentList = mutable
-                                            }
-                                        },
-                                        enabled = index < currentList.size - 1,
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSaveOrder(currentList) },
-                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text("SAVE ROUTE ORDER", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-        shape = RoundedCornerShape(16.dp),
-        containerColor = colorScheme.surface
-    )
-}
-
-// ---------------------------------------------------------------------------
-// 2. DAIRY CALCULATOR DIALOG
-// ---------------------------------------------------------------------------
 @Composable
 fun DairyCalculatorDialog(
     onDismiss: () -> Unit
@@ -3610,7 +3489,7 @@ fun ReconcileDueDialog(
     var targetDueText by remember { mutableStateOf("") }
     var noteText by remember { mutableStateOf("") }
 
-    val currentDue = item.remainingDue
+    val currentDue = if (item.prevDue > 0) item.prevDue else item.remainingDue
     val targetDue = targetDueText.toDoubleOrNull() ?: 0.0
     val deltaAdjustment = CalculationEngine.round2(currentDue - targetDue)
 
@@ -3618,7 +3497,7 @@ fun ReconcileDueDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Reconcile / Correct Due", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Reconcile / Correct Due (बकाया सुधार)", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Text(
                     "Customer #${item.customer.id}: ${item.customer.name}",
                     fontSize = 12.sp,
@@ -3638,7 +3517,7 @@ fun ReconcileDueDialog(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "Current Due: ${CalculationEngine.formatMoney(currentDue)}",
+                            text = "Current Due (वर्तमान बकाया): ${CalculationEngine.formatMoney(currentDue)}",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (currentDue > 0) colorScheme.error else colorScheme.onSurface

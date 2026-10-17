@@ -27,9 +27,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
@@ -39,8 +42,10 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,6 +65,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -358,6 +364,7 @@ fun CustomersScreen(
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     var showAddDialog by remember { mutableStateOf(false) }
+    var showRouteReorderDialog by remember { mutableStateOf(false) }
     var qrCustomerItem by remember { mutableStateOf<CustomerCardItem?>(null) }
 
     Scaffold(
@@ -420,6 +427,47 @@ fun CustomersScreen(
                     icon = Icons.Default.Check,
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            // ROUTE ORDER MANAGER BAR
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ग्राहक सूची (${uiState.customers.size})",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.primaryContainer,
+                    border = BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.5f)),
+                    modifier = Modifier.clickable { showRouteReorderDialog = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SwapVert,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "रूट क्रम बदलें (Route Order)",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary
+                        )
+                    }
+                }
             }
 
             // DUE RECOVERY DASHBOARD FILTER (Section 30)
@@ -639,6 +687,19 @@ fun CustomersScreen(
                 onDismiss = { qrCustomerItem = null }
             )
         }
+
+        // ROUTE ORDER REORDER DIALOG
+        if (showRouteReorderDialog) {
+            RouteReorderDialog(
+                initialCustomers = uiState.customers.map { it.customer },
+                onDismiss = { showRouteReorderDialog = false },
+                onSaveOrder = { reordered ->
+                    viewModel.saveRouteOrder(reordered) {
+                        showRouteReorderDialog = false
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -656,191 +717,121 @@ fun CustomerListItemCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
-        shape = RoundedCornerShape(12.dp),
+            .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Customer ID Avatar
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
             ) {
-                // Customer ID Avatar
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "#${item.customer.id}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = colorScheme.primary
-                    )
-                }
+                Text(
+                    text = "#${item.customer.id}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = colorScheme.primary
+                )
+            }
 
-                Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-                // Details Column
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = item.customer.name,
-                            fontSize = 15.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.onSurface
-                        )
-                    }
+            // Details Column: Name & Liters/Rate only (No mohalla clutter)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.customer.name,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colorScheme.onSurface
+                )
+                Text(
+                    text = "%.1fL • ₹%.0f/L".format(item.customer.defaultLiters, item.customer.ratePerLiter),
+                    fontSize = 12.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
 
-                    Text(
-                        text = "${item.customer.mohalla}${if (item.customer.landmark.isNotBlank()) " • ${item.customer.landmark}" else ""} | ${item.customer.defaultLiters}L",
-                        fontSize = 12.sp,
-                        color = colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            // Balance Column: Due / Advance / PBS clearly displayed
+            Column(horizontalAlignment = Alignment.End) {
+                if (item.currentBalance > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFFEF2F2),
+                        border = BorderStroke(1.dp, Color(0xFFFCA5A5))
                     ) {
-                        BillingTypeBadge(billingType = item.customer.billingType)
-                        MilkTypeBadge(milkType = item.customer.milkType)
-                        RateBadge(rate = item.customer.ratePerLiter)
+                        Text(
+                            text = "बकाया: ₹%,d".format(item.currentBalance.toLong()),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = StatusRed,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                } else if (item.currentBalance < 0) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF0FDF4),
+                        border = BorderStroke(1.dp, Color(0xFF86EFAC))
+                    ) {
+                        Text(
+                            text = "एडवांस: ₹%,d".format((-item.currentBalance).toLong()),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = "हिसाब चुकता",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
                     }
                 }
-
-                // Balance Column
-                Column(horizontalAlignment = Alignment.End) {
-                    if (item.currentBalance > 0) {
-                        Text(
-                            text = "DUE (बकाया)",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = StatusRed
-                        )
-                        Text(
-                            text = CalculationEngine.formatMoney(item.currentBalance),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = StatusRed
-                        )
-                    } else if (item.currentBalance < 0) {
-                        Text(
-                            text = "ADVANCE",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                        Text(
-                            text = CalculationEngine.formatMoney(-item.currentBalance),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                    } else {
-                        Text(
-                            text = "CLEARED",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                        Text(
-                            text = "₹0",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colorScheme.primary
-                        )
-                    }
-
-                    if (item.pbsPending > 0) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFFFF7ED),
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color(0xFFEA580C)),
-                            modifier = Modifier.padding(top = 2.dp)
-                        ) {
-                            Text(
-                                text = "PBS: ₹%,d".format(item.pbsPending.toLong()),
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFC2410C),
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
-                    }
-
-                    if (item.lastPaymentAmount != null && item.lastPaymentDate != null) {
-                        Text(
-                            text = "Last: ₹%.0f (%s)".format(
-                                item.lastPaymentAmount,
-                                CalculationEngine.formatDateDisplay(item.lastPaymentDate).take(6)
-                            ),
-                            fontSize = 10.sp,
-                            color = colorScheme.onSurfaceVariant
-                        )
-                    }
+                if (item.pbsPending > 0) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "PBS: ₹%,d".format(item.pbsPending.toLong()),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFC2410C)
+                    )
                 }
             }
 
-            // Quick Actions Bar on Card (WhatsApp Reminder & Due UPI QR)
-            HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.4f))
+            // Action Buttons: WhatsApp & Call
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.padding(start = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (item.customer.phone.isNotBlank()) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { onCall() }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Call, contentDescription = "Call", tint = colorScheme.primary, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(item.customer.phone, fontSize = 11.5.sp, color = colorScheme.primary)
+                    IconButton(onClick = onCall, modifier = Modifier.size(30.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Call,
+                            contentDescription = "Call",
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
-                } else {
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFFDCFCE7),
-                        modifier = Modifier.clickable { onWhatsApp() }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("💬 WhatsApp", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = colorScheme.primaryContainer,
-                        modifier = Modifier.clickable { onShowQr() }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.QrCode, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text("UPI QR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                        }
+                    IconButton(onClick = onWhatsApp, modifier = Modifier.size(30.dp)) {
+                        Text("💬", fontSize = 14.sp)
                     }
                 }
             }
@@ -1265,4 +1256,200 @@ private fun SectionHeader(title: String) {
         )
         HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f), modifier = Modifier.padding(top = 2.dp))
     }
+}
+
+@Composable
+fun RouteReorderDialog(
+    initialCustomers: List<CustomerEntity>,
+    onDismiss: () -> Unit,
+    onSaveOrder: (List<CustomerEntity>) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    var currentList by remember(initialCustomers) { mutableStateOf(initialCustomers) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SwapVert, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Route Order Manager", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                }
+                Text(
+                    text = "${currentList.size} Customers",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Use ▲ / ▼ to reorder delivery route. Route # updates without changing Customer IDs.",
+                    fontSize = 11.5.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Sort Presets Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = initialCustomers }
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = currentList.sortedBy { it.name } }
+                    ) {
+                        Text("Sort: Name", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = currentList.sortedWith(compareBy({ it.mohalla }, { it.name })) }
+                    ) {
+                        Text("Sort: Mohalla", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceVariant,
+                        modifier = Modifier.clickable { currentList = currentList.sortedBy { it.id } }
+                    ) {
+                        Text("Sort: ID", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Reorderable list
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(340.dp)
+                        .background(colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                        .padding(6.dp)
+                ) {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(currentList, key = { it.id }) { customer ->
+                            val index = currentList.indexOf(customer)
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                                border = BorderStroke(0.5.dp, colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "#${index + 1}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = colorScheme.primary
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = customer.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.5.sp,
+                                            color = colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "ID: #${customer.id} • ${customer.defaultLiters}L",
+                                            fontSize = 10.5.sp,
+                                            color = colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    // Up arrow
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val mutable = currentList.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(index - 1, item)
+                                                currentList = mutable
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                    }
+
+                                    // Down arrow
+                                    IconButton(
+                                        onClick = {
+                                            if (index < currentList.size - 1) {
+                                                val mutable = currentList.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(index + 1, item)
+                                                currentList = mutable
+                                            }
+                                        },
+                                        enabled = index < currentList.size - 1,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSaveOrder(currentList) },
+                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("SAVE ROUTE ORDER", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = colorScheme.surface
+    )
 }

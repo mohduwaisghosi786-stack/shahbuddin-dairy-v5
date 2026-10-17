@@ -48,5 +48,8 @@ interface CustomerDao {
 
     @Query("UPDATE customers SET routeId = :routeId WHERE id = :customerId")
     suspend fun updateCustomerRoute(customerId: Long, routeId: String)
+
+    @Query("UPDATE customers SET isArchived = 1 WHERE id = :id")
+    suspend fun archiveCustomer(id: Long)
 }
 

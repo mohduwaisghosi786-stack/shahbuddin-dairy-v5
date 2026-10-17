@@ -76,11 +76,22 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.ElectricBolt
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.shahbuddindairy.app.ai.PrivateAiApiClient
+import com.shahbuddindairy.app.ai.ConnectionTestResult
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -125,6 +136,15 @@ fun BackupScreen(viewModel: BackupViewModel) {
     var upiInput by remember(uiState.upiId) { mutableStateOf(uiState.upiId) }
     var showRevertConfirm by remember { mutableStateOf(false) }
 
+    // AI Munshi & Private Server Configuration States
+    val coroutineScope = rememberCoroutineScope()
+    val aiClient = remember { PrivateAiApiClient(context) }
+    var aiEnabled by remember { mutableStateOf(aiClient.isAiEnabled) }
+    var aiServerUrlInput by remember { mutableStateOf(aiClient.serverUrl) }
+    var aiModelInput by remember { mutableStateOf(aiClient.configuredModel) }
+    var aiTestResult by remember { mutableStateOf<ConnectionTestResult?>(null) }
+    var isTestingAi by remember { mutableStateOf(false) }
+
     // Security & App Lock Dialog States
     var showEnablePinDialog by remember { mutableStateOf(false) }
     var showChangePinDialog by remember { mutableStateOf(false) }
@@ -135,6 +155,22 @@ fun BackupScreen(viewModel: BackupViewModel) {
     var currentPinInput by remember { mutableStateOf("") }
     var newPinInput by remember { mutableStateOf("") }
     var pinErrorText by remember { mutableStateOf<String?>(null) }
+
+    // Module 5: 30-Second Delayed Factory Reset States
+    var showFormatConfirmDialog by remember { mutableStateOf(false) }
+    var formatConfirmInput by remember { mutableStateOf("") }
+    var formatTimerSeconds by remember { mutableIntStateOf(30) }
+
+    LaunchedEffect(showFormatConfirmDialog) {
+        if (showFormatConfirmDialog) {
+            formatTimerSeconds = 30
+            formatConfirmInput = ""
+            while (formatTimerSeconds > 0) {
+                delay(1000L)
+                formatTimerSeconds--
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -852,6 +888,251 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 }
             }
 
+            // 8. AI MUNSHI & PRIVATE SERVER SETTINGS (DEBIAN 13 / TAILSCALE)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Dns, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "AI Munshi & Private Server",
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Debian 13 Tailscale • MiniCPM-V 1B",
+                                    fontSize = 11.sp,
+                                    color = colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = aiEnabled,
+                            onCheckedChange = {
+                                aiEnabled = it
+                                aiClient.isAiEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF15803D))
+                        )
+                    }
+
+                    // Provider Preset Chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val isDebian = aiServerUrlInput == PrivateAiApiClient.DEFAULT_SERVER_URL
+                        FilterChip(
+                            selected = isDebian,
+                            onClick = {
+                                aiServerUrlInput = PrivateAiApiClient.DEFAULT_SERVER_URL
+                                aiModelInput = PrivateAiApiClient.DEFAULT_MODEL
+                            },
+                            label = { Text("Debian 13 Tailscale", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colorScheme.primary,
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        FilterChip(
+                            selected = !isDebian,
+                            onClick = { /* keep custom */ },
+                            label = { Text("कस्टम API", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF0284C7),
+                                selectedLabelColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = aiServerUrlInput,
+                        onValueChange = { aiServerUrlInput = it },
+                        label = { Text("Server Base URL (Tailscale HTTPS)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colorScheme.primary,
+                            unfocusedBorderColor = colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = aiModelInput,
+                        onValueChange = { aiModelInput = it },
+                        label = { Text("Loaded Model Name") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colorScheme.primary,
+                            unfocusedBorderColor = colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Test Result Display
+                    aiTestResult?.let { res ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (res.isConnected) Color(0xFFF0FDF4) else Color(0xFFFEF2F2),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (res.isConnected) Color(0xFF86EFAC) else Color(0xFFFCA5A5)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (res.isConnected) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = if (res.isConnected) Color(0xFF15803D) else Color(0xFFDC2626),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = res.message,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (res.isConnected) Color(0xFF15803D) else Color(0xFFDC2626)
+                                    )
+                                    if (res.modelName != null) {
+                                        Text(
+                                            text = "Model: ${res.modelName}",
+                                            fontSize = 11.sp,
+                                            color = colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                isTestingAi = true
+                                aiTestResult = null
+                                coroutineScope.launch {
+                                    // Temporarily set url to test
+                                    aiClient.serverUrl = aiServerUrlInput
+                                    aiClient.configuredModel = aiModelInput
+                                    val result = aiClient.testConnection()
+                                    aiTestResult = result
+                                    if (result.modelName != null) {
+                                        aiModelInput = result.modelName
+                                    }
+                                    isTestingAi = false
+                                }
+                            },
+                            enabled = !isTestingAi && aiEnabled,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1.2f)
+                        ) {
+                            if (isTestingAi) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("TESTING...", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.ElectricBolt, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFD97706))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("AUTO-DETECT & TEST", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                aiClient.isAiEnabled = aiEnabled
+                                aiClient.serverUrl = aiServerUrlInput
+                                aiClient.configuredModel = aiModelInput
+                                android.widget.Toast.makeText(context, "AI सेटिंग्स सुरक्षित सहेजी गईं ✓", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(0.8f)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("SAVE", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // 9. DANGER ZONE: FACTORY RESET / FORMAT APP (V9.0)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.errorContainer.copy(alpha = 0.25f)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.error.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Factory Reset / Format App (डेटा रीसेट)",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.error
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "ऐप को नए उपयोगकर्ता के लिए साफ़ करने हेतु सभी लेनदेन रीसेट करें। रीसेट करने से पहले स्वचालित सुरक्षा बैकअप अनिवार्य रूप से सुरक्षित किया जाएगा।",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    Button(
+                        onClick = {
+                            showFormatConfirmDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.error),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("FORMAT ALL APP DATA (30s SAFETY)", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             // 5. APP VERSION FOOTER
             Column(
                 modifier = Modifier
@@ -1314,6 +1595,90 @@ fun BackupScreen(viewModel: BackupViewModel) {
             dismissButton = {
                 OutlinedButton(onClick = { showQrPreviewDialog = false }) {
                     Text("Close")
+                }
+            },
+            shape = RoundedCornerShape(14.dp),
+            containerColor = colorScheme.surface
+        )
+    }
+
+    // FACTORY RESET 30s COUNTDOWN DIALOG (V9.0)
+    if (showFormatConfirmDialog) {
+        val canConfirm = formatTimerSeconds == 0 && formatConfirmInput.trim().equals("FORMAT", ignoreCase = true)
+        AlertDialog(
+            onDismissRequest = { showFormatConfirmDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Warning, contentDescription = null, tint = colorScheme.error)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("⚠️ Format App & Factory Reset", color = colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "चेतावनी: यह क्रिया सभी दूध बिक्री, भुगतान व लेनदेन का डेटा पूरी तरह साफ़ कर देगी!",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorScheme.error
+                    )
+                    Text(
+                        text = "चिंता न करें: रीसेट से पूर्व एक स्वचालित पूर्ण बैकअप 'Downloads/ShahbuddinDairy_Backup_*.json' में स्वतः सहेज लिया जाएगा।",
+                        fontSize = 12.sp,
+                        color = colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "पुष्टि के लिए नीचे 'FORMAT' लिखें:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    OutlinedTextField(
+                        value = formatConfirmInput,
+                        onValueChange = { formatConfirmInput = it },
+                        placeholder = { Text("FORMAT टाइप करें") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colorScheme.error,
+                            unfocusedBorderColor = colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (formatTimerSeconds > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "⏳ सुरक्षा प्रतीक्षा: ${formatTimerSeconds} सेकंड शेष...",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.formatAllData(context) { success ->
+                            showFormatConfirmDialog = false
+                        }
+                    },
+                    enabled = canConfirm,
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.error)
+                ) {
+                    Text(
+                        text = if (formatTimerSeconds > 0) "WAIT (${formatTimerSeconds}s)" else "CONFIRM RESET",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showFormatConfirmDialog = false }) {
+                    Text("रद्द करें (Cancel)")
                 }
             },
             shape = RoundedCornerShape(14.dp),

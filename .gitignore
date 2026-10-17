@@ -26,4 +26,5 @@ build/
 device_backup/
 device_screenshot.png
 .vscode/
+screenshots/
 

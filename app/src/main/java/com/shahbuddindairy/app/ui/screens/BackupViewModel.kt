@@ -271,4 +271,26 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
         refreshStatus()
         return success
     }
+
+    // Module 5: 30-Second Delayed Factory Reset (Format App) with Guaranteed Pre-Reset Backup
+    fun formatAllData(context: Context, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRestoring = true)
+            val success = withContext(Dispatchers.IO) {
+                try {
+                    // Step 1: ALWAYS create automatic safety backup first!
+                    BackupManager.createBackup(context, database)
+
+                    // Step 2: Clear all tables in database
+                    database.clearAllTables()
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            _uiState.value = _uiState.value.copy(isRestoring = false)
+            refreshStatus()
+            onComplete(success)
+        }
+    }
 }

@@ -143,21 +143,8 @@ class ThemeController(context: Context) {
     }
 
     fun isDarkTheme(systemIsDark: Boolean): Boolean {
-        return when (themeMode) {
-            ThemeMode.LIGHT -> false
-            ThemeMode.DARK -> true
-            ThemeMode.SYSTEM -> systemIsDark
-            ThemeMode.AUTO -> {
-                // Daytime (06:00 to 18:30) = Light, Nighttime = Dark
-                val cal = Calendar.getInstance()
-                val hour = cal.get(Calendar.HOUR_OF_DAY)
-                val minute = cal.get(Calendar.MINUTE)
-                val currentMinutes = hour * 60 + minute
-                val sunrise = 6 * 60       // 6:00 AM
-                val sunset = 18 * 60 + 30   // 6:30 PM
-                currentMinutes !in sunrise..sunset
-            }
-        }
+        // V10.5 Requirement: Always enforce Light Theme for outdoor daylight readability
+        return false
     }
 }
 
@@ -206,33 +193,33 @@ fun buildColorScheme(
         )
     } else {
         lightColorScheme(
-            primary = accent.primaryLight,
+            primary = Color(0xFF15803D), // Emerald Green Accent
             onPrimary = Color.White,
-            primaryContainer = accent.primaryContainerLight,
-            onPrimaryContainer = Color(0xFF002206),
-            secondary = accent.secondaryLight,
+            primaryContainer = Color(0xFFDCFCE7), // Mint green container
+            onPrimaryContainer = Color(0xFF14532D),
+            secondary = Color(0xFF1E40AF), // Deep Blue Accent
             onSecondary = Color.White,
-            secondaryContainer = Color(0xFFE0EEDF),
-            onSecondaryContainer = Color(0xFF0A200E),
-            tertiary = Color(0xFF006874),
+            secondaryContainer = Color(0xFFDBEAFE),
+            onSecondaryContainer = Color(0xFF1E3A8A),
+            tertiary = Color(0xFF0369A1),
             onTertiary = Color.White,
-            tertiaryContainer = Color(0xFFBCEEF3),
-            onTertiaryContainer = Color(0xFF001F24),
-            background = Color(0xFFF7F9F7),
-            onBackground = Color(0xFF181C19),
+            tertiaryContainer = Color(0xFFE0F2FE),
+            onTertiaryContainer = Color(0xFF0C4A6E),
+            background = Color(0xFFFFFFFF), // Pure Crisp White
+            onBackground = Color(0xFF0F172A), // Deep Charcoal Black
             surface = Color(0xFFFFFFFF),
-            onSurface = Color(0xFF181C19),
-            surfaceVariant = Color(0xFFEDF2ED),
-            onSurfaceVariant = Color(0xFF424941),
-            surfaceContainer = Color(0xFFF2F6F2),
-            surfaceContainerHigh = Color(0xFFE6EDE6),
-            surfaceContainerHighest = Color(0xFFDBE3DB),
-            outline = Color(0xFFD0D7D0),
-            outlineVariant = Color(0xFFE3E9E3),
-            error = Color(0xFFBA1A1A),
+            onSurface = Color(0xFF0F172A),
+            surfaceVariant = Color(0xFFF8FAFC), // Very light clean slate
+            onSurfaceVariant = Color(0xFF1E293B), // High contrast slate
+            surfaceContainer = Color(0xFFF1F5F9),
+            surfaceContainerHigh = Color(0xFFE2E8F0),
+            surfaceContainerHighest = Color(0xFFCBD5E1),
+            outline = Color(0xFF94A3B8), // Crisp visible 1.5dp borders
+            outlineVariant = Color(0xFFCBD5E1),
+            error = Color(0xFFDC2626),
             onError = Color.White,
-            errorContainer = Color(0xFFFFDAD6),
-            onErrorContainer = Color(0xFF410002)
+            errorContainer = Color(0xFFFEE2E2),
+            onErrorContainer = Color(0xFF991B1B)
         )
     }
 }

@@ -480,19 +480,21 @@ object PdfReportGenerator {
             }
             canvas.drawText("Completed: $servedCount customers  •  Naga (Skipped): $nagaCount  •  Pending: $pendingCount", 50f, 115f, countPaint)
 
-            // Table Header
+            // Table Header (Mobile Portrait Optimized with Prev Due & Advance)
             val tableTop = 145f
             val rowHeight = 20f
 
             fun drawTableHeader(c: Canvas, topY: Float) {
                 c.drawRect(40f, topY, 555f, topY + rowHeight, headerBgPaint)
-                c.drawText("#", 45f, topY + 14f, headerTextPaint)
-                c.drawText("Customer Name", 75f, topY + 14f, headerTextPaint)
-                c.drawText("Mohalla", 225f, topY + 14f, headerTextPaint)
-                c.drawText("Milk", 330f, topY + 14f, headerTextPaint)
-                c.drawText("Rate", 380f, topY + 14f, headerTextPaint)
-                c.drawText("Today Bill", 430f, topY + 14f, headerTextPaint)
-                c.drawText("Cash Paid", 495f, topY + 14f, headerTextPaint)
+                c.drawText("#", 44f, topY + 14f, headerTextPaint)
+                c.drawText("Customer", 68f, topY + 14f, headerTextPaint)
+                c.drawText("Milk", 192f, topY + 14f, headerTextPaint)
+                c.drawText("Bill", 236f, topY + 14f, headerTextPaint)
+                c.drawText("Prev Due", 280f, topY + 14f, headerTextPaint)
+                c.drawText("Advance", 340f, topY + 14f, headerTextPaint)
+                c.drawText("Cash", 398f, topY + 14f, headerTextPaint)
+                c.drawText("Net Bal", 452f, topY + 14f, headerTextPaint)
+                c.drawText("Status", 512f, topY + 14f, headerTextPaint)
             }
 
             drawTableHeader(canvas, tableTop)
@@ -518,28 +520,47 @@ object PdfReportGenerator {
                 }
 
                 val d = delivMap[c.id]
-                canvas.drawText("${c.id}", 45f, currentY + 14f, rowTextPaint)
-                canvas.drawText(c.name.take(20), 75f, currentY + 14f, rowTextPaint)
-                canvas.drawText(c.mohalla.take(15), 225f, currentY + 14f, rowTextPaint)
+                val prevBal = CalculationEngine.calculatePrevDueBefore(c.id, date, deliveries, payments)
+                val prevDueVal = if (prevBal > 0) prevBal else 0.0
+                val advanceVal = if (prevBal < 0) -prevBal else 0.0
+
+                val billAmt = if (d != null && !d.isVoid && d.status == "delivered") d.totalAmount else 0.0
+                val cashAmt = if (d != null && !d.isVoid) d.paidCash else 0.0
+                val netBal = prevBal + billAmt - cashAmt
+
+                canvas.drawText("${c.id}", 44f, currentY + 14f, rowTextPaint)
+                canvas.drawText(c.name.take(16), 68f, currentY + 14f, rowTextPaint)
 
                 if (d != null && !d.isVoid) {
                     if (d.status == "delivered") {
-                        canvas.drawText("%.2fL".format(d.liters), 330f, currentY + 14f, rowTextPaint)
-                        canvas.drawText("₹%.0f".format(d.rate), 380f, currentY + 14f, rowTextPaint)
-                        canvas.drawText("₹%.0f".format(d.totalAmount), 430f, currentY + 14f, rowTextPaint)
-                        canvas.drawText(if (d.paidCash > 0) "₹%.0f".format(d.paidCash) else "—", 495f, currentY + 14f, rowTextPaint)
+                        canvas.drawText("%.2fL".format(d.liters), 192f, currentY + 14f, rowTextPaint)
+                        canvas.drawText("₹%.0f".format(billAmt), 236f, currentY + 14f, rowTextPaint)
                     } else {
-                        canvas.drawText("NAGA", 330f, currentY + 14f, Paint().apply { color = Color.RED; textSize = 9f; isFakeBoldText = true })
-                        canvas.drawText("—", 380f, currentY + 14f, rowTextPaint)
-                        canvas.drawText("—", 430f, currentY + 14f, rowTextPaint)
-                        canvas.drawText("—", 495f, currentY + 14f, rowTextPaint)
+                        canvas.drawText("NAGA", 192f, currentY + 14f, Paint().apply { color = Color.RED; textSize = 9f; isFakeBoldText = true })
+                        canvas.drawText("—", 236f, currentY + 14f, rowTextPaint)
                     }
                 } else {
-                    canvas.drawText("Pending", 330f, currentY + 14f, Paint().apply { color = Color.rgb(230, 81, 0); textSize = 9f })
-                    canvas.drawText("—", 380f, currentY + 14f, rowTextPaint)
-                    canvas.drawText("—", 430f, currentY + 14f, rowTextPaint)
-                    canvas.drawText("—", 495f, currentY + 14f, rowTextPaint)
+                    canvas.drawText("Pending", 192f, currentY + 14f, Paint().apply { color = Color.rgb(230, 81, 0); textSize = 8.5f })
+                    canvas.drawText("—", 236f, currentY + 14f, rowTextPaint)
                 }
+
+                canvas.drawText(if (prevDueVal > 0) "₹%.0f".format(prevDueVal) else "—", 280f, currentY + 14f, rowTextPaint)
+                canvas.drawText(if (advanceVal > 0) "₹%.0f".format(advanceVal) else "—", 340f, currentY + 14f, rowTextPaint)
+                canvas.drawText(if (cashAmt > 0) "₹%.0f".format(cashAmt) else "—", 398f, currentY + 14f, rowTextPaint)
+
+                // Net Balance
+                val netBalText = if (netBal > 0) "₹%.0f".format(netBal) else if (netBal < 0) "+₹%.0f".format(-netBal) else "₹0"
+                val netBalColor = if (netBal > 0) Color.rgb(180, 0, 0) else if (netBal < 0) Color.rgb(27, 94, 32) else Color.BLACK
+                canvas.drawText(netBalText, 452f, currentY + 14f, Paint().apply { color = netBalColor; textSize = 8.5f; isFakeBoldText = netBal != 0.0 })
+
+                // Status tag
+                val statusText = if (d != null && !d.isVoid) {
+                    if (d.status == "delivered") "DONE ✓" else "NAGA"
+                } else "PEND"
+                val statusColor = if (d != null && !d.isVoid) {
+                    if (d.status == "delivered") Color.rgb(27, 94, 32) else Color.RED
+                } else Color.rgb(230, 81, 0)
+                canvas.drawText(statusText, 512f, currentY + 14f, Paint().apply { color = statusColor; textSize = 8f; isFakeBoldText = true })
 
                 canvas.drawLine(40f, currentY + rowHeight, 555f, currentY + rowHeight, linePaint)
                 currentY += rowHeight

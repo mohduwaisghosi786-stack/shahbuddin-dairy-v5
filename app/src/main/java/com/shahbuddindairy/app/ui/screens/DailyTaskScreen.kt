@@ -219,6 +219,9 @@ fun DailyTaskScreen(
     var showAiMunshiDialog by remember { mutableStateOf(false) }
     var customRateDialogCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
     var deliveredAnimCustomer by remember { mutableStateOf<String?>(null) }
+    var aiDeliveryNoteCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var aiCustomerCleanCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
+    var faceToFaceReminderCustomer by remember { mutableStateOf<DailyCustomerCardItem?>(null) }
 
     LaunchedEffect(deliveredAnimCustomer) {
         if (deliveredAnimCustomer != null) {
@@ -805,7 +808,9 @@ fun DailyTaskScreen(
                     onBillEditClicked = { overridingBillCustomer = currentItem },
                     onDueEditClicked = { editingDueCustomer = currentItem },
                     onAdvanceEditClicked = { editingAdvanceCustomer = currentItem },
-                    onMoreClicked = { runnerMoreCustomerItem = currentItem }
+                    onMoreClicked = { runnerMoreCustomerItem = currentItem },
+                    onAiNoteClicked = { aiDeliveryNoteCustomer = currentItem },
+                    onPoliteReminderClicked = { faceToFaceReminderCustomer = currentItem }
                 )
 
                 // FLOATING PULL-TAB ON RIGHT EDGE (Panel 2 trigger)
@@ -960,7 +965,7 @@ fun DailyTaskScreen(
             item = item,
             onDismiss = { editingDueCustomer = null },
             onConfirm = { targetDue, note ->
-                val baseBal = if (item.prevDue > 0) item.prevDue else item.remainingDue
+                val baseBal = if (item.prevDue > 0) item.prevDue else 0.0
                 viewModel.recordDueAdjustment(
                     customerId = item.customer.id,
                     currentBalance = baseBal,
@@ -979,9 +984,10 @@ fun DailyTaskScreen(
             item = item,
             onDismiss = { editingAdvanceCustomer = null },
             onConfirm = { targetAdvance, note ->
+                val curAdv = if (item.prevDue < 0) -item.prevDue else 0.0
                 viewModel.recordAdvanceAdjustment(
                     customerId = item.customer.id,
-                    currentAdvance = item.advance,
+                    currentAdvance = curAdv,
                     targetAdvance = targetAdvance,
                     note = note
                 ) {
@@ -1076,7 +1082,55 @@ fun DailyTaskScreen(
                     context.startActivity(chooser)
                 }
             },
-            onEditMaster = { editingMasterCustomer = item.customer }
+            onEditMaster = { editingMasterCustomer = item.customer },
+            onAiCleanName = { aiCustomerCleanCustomer = item },
+            onAiDeliveryNote = { aiDeliveryNoteCustomer = item }
+        )
+    }
+
+    // 8.1 AI DELIVERY NOTE DIALOG
+    aiDeliveryNoteCustomer?.let { item ->
+        AiDeliveryNoteDialog(
+            item = item,
+            aiClient = aiClient,
+            onDismiss = { aiDeliveryNoteCustomer = null },
+            onSaveNote = { content ->
+                viewModel.saveCustomerNote(
+                    customerId = item.customer.id,
+                    content = content,
+                    isPinned = true
+                ) {
+                    aiDeliveryNoteCustomer = null
+                }
+            }
+        )
+    }
+
+    // 8.2 AI CUSTOMER NAME & ADDRESS NORMALIZER DIALOG
+    aiCustomerCleanCustomer?.let { item ->
+        AiCustomerCleanDialog(
+            item = item,
+            aiClient = aiClient,
+            onDismiss = { aiCustomerCleanCustomer = null },
+            onSave = { cName, cMohalla, finalLandmark ->
+                val updated = item.customer.copy(
+                    name = cName,
+                    mohalla = cMohalla,
+                    landmark = finalLandmark
+                )
+                viewModel.updateCustomerMaster(updated) {
+                    aiCustomerCleanCustomer = null
+                }
+            }
+        )
+    }
+
+    // 8.3 FACE-TO-FACE POLITE DUE REMINDER DIALOG
+    faceToFaceReminderCustomer?.let { item ->
+        FaceToFaceReminderDialog(
+            item = item,
+            voiceManager = voiceManager,
+            onDismiss = { faceToFaceReminderCustomer = null }
         )
     }
 
@@ -1686,172 +1740,186 @@ fun RunnerSideTrayWithScrubber(
             .background(Color.Black.copy(alpha = 0.45f))
             .clickable { onClose() }
     ) {
+        // PANEL 2: LEFT-SIDE SLIDE-OUT CUSTOMER LIST (72% width)
         Surface(
             modifier = Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(0.68f)
-                .align(Alignment.CenterEnd)
+                .fillMaxWidth(0.72f)
+                .align(Alignment.CenterStart)
                 .clickable(enabled = false) {}, // prevent click-through
             color = colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+            shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
             border = BorderStroke(1.dp, colorScheme.outlineVariant),
             shadowElevation = 8.dp
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                // Main Drawer Content
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .padding(10.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("सभी ग्राहक", fontSize = 15.sp, fontWeight = FontWeight.Black)
-                            Text("${cards.size} में से ग्राहक चुनें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
-                        }
+                    Column {
+                        Text("सभी ग्राहक", fontSize = 15.sp, fontWeight = FontWeight.Black)
+                        Text("${cards.size} में से ग्राहक चुनें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
                     }
+                    IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
+                    }
+                }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                    // Search field
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("नाम, गली या #...", fontSize = 12.sp) },
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.fillMaxWidth().height(46.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        textStyle = TextStyle(fontSize = 12.5.sp)
-                    )
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("नाम, गली या #...", fontSize = 12.sp) },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    textStyle = TextStyle(fontSize = 12.5.sp)
+                )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                    // Customer List
-                    LazyColumn(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        itemsIndexed(filteredCards) { idx, item ->
-                            val isCurrent = item.customer.id == currentItemId
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = when {
-                                    isCurrent -> colorScheme.primaryContainer
-                                    item.isDone -> Color(0xFFF0FDF4)
-                                    item.isNaga -> Color(0xFFFEF2F2)
-                                    else -> colorScheme.surfaceContainerLow
-                                },
-                                border = BorderStroke(
-                                    if (isCurrent) 1.5.dp else 0.5.dp,
-                                    if (isCurrent) colorScheme.primary else colorScheme.outlineVariant
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onSelectCustomer(item.customer.id)
-                                        onClose()
-                                    }
+                // Customer List
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(filteredCards) { idx, item ->
+                        val isCurrent = item.customer.id == currentItemId
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = when {
+                                isCurrent -> colorScheme.primaryContainer
+                                item.isDone -> Color(0xFFF0FDF4)
+                                item.isNaga -> Color(0xFFFEF2F2)
+                                else -> colorScheme.surfaceContainerLow
+                            },
+                            border = BorderStroke(
+                                if (isCurrent) 1.5.dp else 0.5.dp,
+                                if (isCurrent) colorScheme.primary else colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelectCustomer(item.customer.id)
+                                    onClose()
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Status Dot
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                when {
-                                                    item.isDone -> Color(0xFF15803D)
-                                                    item.isNaga -> Color(0xFFDC2626)
-                                                    else -> Color(0xFF9CA3AF)
-                                                }
-                                            )
+                                // Status Dot
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            when {
+                                                item.isDone -> Color(0xFF15803D)
+                                                item.isNaga -> Color(0xFFDC2626)
+                                                else -> Color(0xFF9CA3AF)
+                                            }
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "#${item.routeIndex + 1} ${item.customer.name}",
+                                        fontSize = 12.5.sp,
+                                        fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold,
+                                        color = if (isCurrent) colorScheme.primary else colorScheme.onSurface
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "#${item.routeIndex + 1} ${item.customer.name}",
-                                            fontSize = 12.5.sp,
-                                            fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold,
-                                            color = if (isCurrent) colorScheme.primary else colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "${item.customer.mohalla} • ${item.customer.defaultLiters}L",
-                                            fontSize = 10.5.sp,
-                                            color = colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (item.isDone) {
-                                        Text("✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
-                                    }
+                                    Text(
+                                        text = "${item.customer.mohalla} • ${item.customer.defaultLiters}L",
+                                        fontSize = 10.5.sp,
+                                        color = colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if (item.isDone) {
+                                    Text("✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
 
-                // VERTICAL FAST THUMB SCRUBBER (PANEL 1)
-                var scrubberHeightPx by remember { mutableFloatStateOf(1f) }
-                Surface(
-                    color = colorScheme.surfaceContainerHigh,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(32.dp)
-                        .onGloballyPositioned { layoutCoordinates ->
-                            scrubberHeightPx = layoutCoordinates.size.height.toFloat()
+        // PANEL 1: RIGHT-EDGE VERTICAL FAST THUMB SCRUBBER (Separate surface on Right side)
+        var scrubberHeightPx by remember { mutableFloatStateOf(1f) }
+        Surface(
+            color = colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
+            border = BorderStroke(1.dp, colorScheme.outlineVariant),
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(36.dp)
+                .align(Alignment.CenterEnd)
+                .clickable(enabled = false) {}
+                .onGloballyPositioned { layoutCoordinates ->
+                    scrubberHeightPx = layoutCoordinates.size.height.toFloat()
+                }
+                .pointerInput(cards) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            val fraction = (offset.y / scrubberHeightPx).coerceIn(0f, 0.999f)
+                            val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
+                            val targetCard = cards[targetIdx]
+                            onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val fraction = (change.position.y / scrubberHeightPx).coerceIn(0f, 0.999f)
+                            val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
+                            val targetCard = cards[targetIdx]
+                            onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
+                        },
+                        onDragEnd = {
+                            onScrubberBubbleChanged(null)
+                        },
+                        onDragCancel = {
+                            onScrubberBubbleChanged(null)
                         }
-                        .pointerInput(cards) {
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    val fraction = (offset.y / scrubberHeightPx).coerceIn(0f, 0.999f)
-                                    val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
-                                    val targetCard = cards[targetIdx]
-                                    onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    val fraction = (change.position.y / scrubberHeightPx).coerceIn(0f, 0.999f)
-                                    val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
-                                    val targetCard = cards[targetIdx]
-                                    onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
-                                },
-                                onDragEnd = {
-                                    onScrubberBubbleChanged(null)
-                                },
-                                onDragCancel = {
-                                    onScrubberBubbleChanged(null)
-                                }
-                            )
-                        }
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(vertical = 4.dp),
-                        verticalArrangement = Arrangement.SpaceBetween,
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    )
+                }
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val step = (cards.size / 8).coerceAtLeast(1)
+                for (i in 0 until cards.size step step) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(if (cards[i].customer.id == currentItemId) colorScheme.primary else Color.Transparent)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onSelectCustomer(cards[i].customer.id)
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        val step = (cards.size / 8).coerceAtLeast(1)
-                        for (i in 0 until cards.size step step) {
-                            Text(
-                                text = "${i + 1}",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = "${i + 1}",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (cards[i].customer.id == currentItemId) Color.White else colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -2101,7 +2169,9 @@ fun DailyTaskRunnerCard(
     onMoreClicked: () -> Unit = {},
     onCustomerNumberClicked: () -> Unit = {},
     onSkipClicked: () -> Unit = {},
-    onWhatsAppReceiptClicked: () -> Unit = {}
+    onWhatsAppReceiptClicked: () -> Unit = {},
+    onAiNoteClicked: () -> Unit = {},
+    onPoliteReminderClicked: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
@@ -2223,6 +2293,9 @@ fun DailyTaskRunnerCard(
                     IconButton(onClick = onKhataClicked, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.History, contentDescription = "Khata", tint = colorScheme.primary, modifier = Modifier.size(19.dp))
                     }
+                    IconButton(onClick = onAiNoteClicked, modifier = Modifier.size(34.dp)) {
+                        Icon(Icons.Default.Mic, contentDescription = "AI Note", tint = Color(0xFFD97706), modifier = Modifier.size(19.dp))
+                    }
                     IconButton(onClick = onMoreClicked, modifier = Modifier.size(34.dp)) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More", tint = colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                     }
@@ -2232,16 +2305,17 @@ fun DailyTaskRunnerCard(
                 if (item.pinnedNote != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = Color(0xFFFEF3C7),
                         border = BorderStroke(0.5.dp, Color(0xFFF59E0B)),
-                        modifier = Modifier.fillMaxWidth().clickable { onNotesClicked() }
+                        modifier = Modifier.fillMaxWidth().clickable { onAiNoteClicked() }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("📌 ${item.pinnedNote}", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF92400E))
+                            Text("📌 ${item.pinnedNote}", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF92400E), modifier = Modifier.weight(1f))
+                            Icon(Icons.Default.Edit, contentDescription = null, tint = Color(0xFF92400E), modifier = Modifier.size(13.dp))
                         }
                     }
                 }
@@ -2250,6 +2324,7 @@ fun DailyTaskRunnerCard(
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (item.yesterdayWasNaga) {
@@ -2266,6 +2341,20 @@ fun DailyTaskRunnerCard(
                         )
                     } else {
                         Text("कल: 0L", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
+                    }
+
+                    if (item.pinnedNote == null) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFFEF3C7),
+                            modifier = Modifier.clickable { onAiNoteClicked() }
+                        ) {
+                            Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFF92400E), modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("AI नोट", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                            }
+                        }
                     }
                 }
 
@@ -2312,6 +2401,40 @@ fun DailyTaskRunnerCard(
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.height(32.dp)
                     )
+                }
+
+                // AI Smart Liters / Routine Predictor
+                val suggestedLiters: Double? = when {
+                    item.suggestedMilkFromCash != null && item.suggestedMilkFromCash > 0 -> item.suggestedMilkFromCash
+                    item.yesterdayDeliveredLiters != null && item.yesterdayDeliveredLiters > 0 && item.yesterdayDeliveredLiters != (item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters) -> item.yesterdayDeliveredLiters
+                    else -> null
+                }
+
+                if (suggestedLiters != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFF3E8FF),
+                        border = BorderStroke(0.5.dp, Color(0xFFC084FC)),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onQuantityChanged("%.2f".format(Locale.US, suggestedLiters))
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.ElectricBolt, contentDescription = null, tint = Color(0xFF7E22CE), modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                "✨ AI सुझाव: %.2fL लागू करें".format(suggestedLiters),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF7E22CE)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -2391,49 +2514,70 @@ fun DailyTaskRunnerCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Box 1: आज बिल
+                    // Box 1: आज बिल (Editable)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFEFF6FF),
                         border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
-                        modifier = Modifier.weight(1f).height(62.dp)
+                        modifier = Modifier.weight(1f).height(62.dp).clickable { onBillEditClicked() }
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
-                            Text("आज बिल", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E40AF))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("आज बिल", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E40AF))
+                                Text("✎", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF3B82F6))
+                            }
                             Spacer(modifier = Modifier.weight(1f))
                             Text("₹%.0f".format(todayBillVal), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF1E40AF))
                         }
                     }
 
-                    // Box 2: पुराना PBS
+                    // Box 2: पुराना PBS / बकाया (Editable)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = if (existingPbs > 0) Color(0xFFFFF7ED) else colorScheme.surfaceVariant,
                         border = BorderStroke(1.dp, if (existingPbs > 0) Color(0xFFFED7AA) else colorScheme.outlineVariant),
-                        modifier = Modifier.weight(1f).height(62.dp).clickable { onPbsEditClicked() }
+                        modifier = Modifier.weight(1f).height(62.dp).clickable { onDueEditClicked() }
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
-                            Text("पुराना PBS", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (existingPbs > 0) Color(0xFFC2410C) else colorScheme.onSurfaceVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("पुराना PBS", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (existingPbs > 0) Color(0xFFC2410C) else colorScheme.onSurfaceVariant)
+                                Text("✎", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (existingPbs > 0) Color(0xFFC2410C) else colorScheme.onSurfaceVariant)
+                            }
                             Spacer(modifier = Modifier.weight(1f))
                             Text("₹%.0f".format(existingPbs), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (existingPbs > 0) Color(0xFFC2410C) else colorScheme.onSurface)
                         }
                     }
 
-                    // Box 3: कुल देय
+                    // Box 3: कुल देय (Editable)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = Color(0xFFF8FAFC),
                         border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                        modifier = Modifier.weight(1f).height(62.dp)
+                        modifier = Modifier.weight(1f).height(62.dp).clickable { onDueEditClicked() }
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
-                            Text("कुल देय", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("कुल देय", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF0F172A))
+                                Text("✎", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
+                            }
                             Spacer(modifier = Modifier.weight(1f))
                             Text("₹%.0f".format(totalRequiredVal), fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color(0xFF0F172A))
                         }
                     }
 
-                    // Box 4: जमा एडवांस (Green if positive)
+                    // Box 4: जमा एडवांस (Editable)
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = if (existingAdvance > 0) Color(0xFFF0FDF4) else colorScheme.surfaceVariant,
@@ -2441,9 +2585,44 @@ fun DailyTaskRunnerCard(
                         modifier = Modifier.weight(1f).height(62.dp).clickable { onAdvanceEditClicked() }
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
-                            Text("एडवांस", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (existingAdvance > 0) Color(0xFF15803D) else colorScheme.onSurfaceVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("एडवांस", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = if (existingAdvance > 0) Color(0xFF15803D) else colorScheme.onSurfaceVariant)
+                                Text("✎", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (existingAdvance > 0) Color(0xFF15803D) else colorScheme.onSurfaceVariant)
+                            }
                             Spacer(modifier = Modifier.weight(1f))
                             Text("₹%.0f".format(existingAdvance), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = if (existingAdvance > 0) Color(0xFF15803D) else colorScheme.onSurface)
+                        }
+                    }
+                }
+
+                if (item.prevDue > 500) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFFFBEB),
+                        border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                        modifier = Modifier.fillMaxWidth().clickable { onPoliteReminderClicked() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    "💡 विनम्र तकादा (पिछला बकाया ₹%.0f)".format(item.prevDue),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF92400E)
+                                )
+                            }
+                            Text("तकादा स्क्रिप्ट ➔", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309))
                         }
                     }
                 }
@@ -4326,7 +4505,9 @@ fun RunnerMoreMenuDialog(
     onOpenReceipt: () -> Unit,
     onOpenNotes: () -> Unit,
     onOpenWhatsApp: () -> Unit,
-    onEditMaster: () -> Unit
+    onEditMaster: () -> Unit,
+    onAiCleanName: () -> Unit = {},
+    onAiDeliveryNote: () -> Unit = {}
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -4382,6 +4563,42 @@ fun RunnerMoreMenuDialog(
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))
+
+                // AI Action Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onAiCleanName()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF7E22CE)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("✨ AI नाम सुधारें", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onAiDeliveryNote()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD97706)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("🎙️ AI नोट", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
 
                 // Action grid / list
                 Row(
@@ -4488,6 +4705,384 @@ fun RunnerMoreMenuDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("Close")
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+/**
+ * AI-assisted voice/typing delivery note dialog.
+ * Saves concise instructions (e.g. "Gate band rehta hai", "2nd floor bell") pinned to customer in Room DB.
+ */
+@Composable
+fun AiDeliveryNoteDialog(
+    item: DailyCustomerCardItem,
+    aiClient: PrivateAiApiClient,
+    onDismiss: () -> Unit,
+    onSaveNote: (String) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var noteText by remember { mutableStateOf(item.pinnedNote ?: "") }
+    var isAiFormatting by remember { mutableStateOf(false) }
+
+    val speechLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spoken = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+            if (!spoken.isNullOrBlank()) {
+                noteText = spoken
+                if (aiClient.isAiEnabled) {
+                    isAiFormatting = true
+                    coroutineScope.launch {
+                        val formatted = aiClient.formatDeliveryNote(spoken)
+                        if (formatted.isNotBlank()) {
+                            noteText = formatted
+                        }
+                        isAiFormatting = false
+                    }
+                }
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(22.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("AI डिलीवरी नोट", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("#${item.routeIndex + 1} ${item.customer.name} (${item.customer.mohalla})", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "💡 बोलकर या लिखकर निर्देश दें (उदा: 'गेट बंद रहता है 2nd फ्लोर पर घंटी बजाना' या 'कल 1L ज्यादा देना')",
+                        fontSize = 11.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    label = { Text("डिलीवरी नोट (निर्देश)") },
+                    placeholder = { Text("यहाँ लिखें या माइक दबाकर बोलें...") },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                        putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
+                                        putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "डिलीवरी नोट बोलें...")
+                                    }
+                                    speechLauncher.launch(intent)
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "माइक उपलब्ध नहीं है, कृपया टाइप करें", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "Speak", tint = colorScheme.primary)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(100.dp),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            if (noteText.isNotBlank()) {
+                                isAiFormatting = true
+                                coroutineScope.launch {
+                                    val formatted = aiClient.formatDeliveryNote(noteText)
+                                    if (formatted.isNotBlank()) {
+                                        noteText = formatted
+                                    }
+                                    isAiFormatting = false
+                                }
+                            }
+                        },
+                        enabled = !isAiFormatting && noteText.isNotBlank(),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        if (isAiFormatting) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        } else {
+                            Icon(Icons.Default.ElectricBolt, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text("✨ AI संक्षेप करें", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (item.pinnedNote != null) {
+                        TextButton(
+                            onClick = { onSaveNote("") },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFDC2626))
+                        ) {
+                            Text("नोट हटाएं", fontSize = 11.5.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSaveNote(noteText.trim()) },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("📌 पिन व सहेजें")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("रद्द करें")
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+/**
+ * AI-assisted customer name and mohalla cleaner dialog.
+ * Strips messy emojis, isolates profession/nickname, and cleans mohalla name.
+ */
+@Composable
+fun AiCustomerCleanDialog(
+    item: DailyCustomerCardItem,
+    aiClient: PrivateAiApiClient,
+    onDismiss: () -> Unit,
+    onSave: (cleanName: String, cleanMohalla: String, landmarkWithNick: String) -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val coroutineScope = rememberCoroutineScope()
+    var cleanName by remember { mutableStateOf(item.customer.name) }
+    var nickname by remember { mutableStateOf("") }
+    var cleanMohalla by remember { mutableStateOf(item.customer.mohalla) }
+    var isCleaning by remember { mutableStateOf(false) }
+
+    LaunchedEffect(item.customer.id) {
+        if (aiClient.isAiEnabled) {
+            isCleaning = true
+            coroutineScope.launch {
+                val (cName, nick, cMohalla) = aiClient.cleanCustomerIdentity(item.customer.name, item.customer.mohalla)
+                cleanName = cName
+                nickname = nick
+                cleanMohalla = cMohalla
+                isCleaning = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF7E22CE), modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("AI नाम व पता सुधारक", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("अनावश्यक इमोजी व कचरा हटाकर साफ करें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Text("मूल नाम: ${item.customer.name}", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
+                        Text("मूल मोहल्ला: ${item.customer.mohalla}", fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                if (isCleaning) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Debian AI नाम साफ कर रहा है...", fontSize = 11.5.sp, color = colorScheme.primary)
+                    }
+                }
+
+                OutlinedTextField(
+                    value = cleanName,
+                    onValueChange = { cleanName = it },
+                    label = { Text("साफ नाम (Proper Name)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                OutlinedTextField(
+                    value = nickname,
+                    onValueChange = { nickname = it },
+                    label = { Text("उपनाम / पेशा / उर्फ (वैकल्पिक)") },
+                    placeholder = { Text("उदा: दर्जी, मास्टर जी, नैनुआ") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+
+                OutlinedTextField(
+                    value = cleanMohalla,
+                    onValueChange = { cleanMohalla = it },
+                    label = { Text("साफ मोहल्ला / गली") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val finalLandmark = if (nickname.isNotBlank()) {
+                        if (item.customer.landmark.isNotBlank() && !item.customer.landmark.contains(nickname)) {
+                            "${item.customer.landmark} ($nickname)"
+                        } else if (item.customer.landmark.isBlank()) {
+                            nickname
+                        } else item.customer.landmark
+                    } else item.customer.landmark
+                    onSave(cleanName.trim(), cleanMohalla.trim(), finalLandmark)
+                },
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("स्वीकार करें व सहेजें ✓")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("रद्द करें")
+            }
+        },
+        shape = RoundedCornerShape(14.dp),
+        containerColor = colorScheme.surface
+    )
+}
+
+/**
+ * Courteous face-to-face Hindi collection reminder dialogue.
+ * Offers 1-tap TTS vocalization and WhatsApp reminder for customers with balance > ₹500.
+ */
+@Composable
+fun FaceToFaceReminderDialog(
+    item: DailyCustomerCardItem,
+    voiceManager: VoiceFeedbackManager,
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    val dueAmt = if (item.prevDue > 0) item.prevDue else item.remainingDue
+    val totalAmt = item.totalRequired
+
+    val politeHindiScript = "आदाब / नमस्ते ${item.customer.name} जी, पिछला हिसाब ₹%.0f बाकी चल रहा है। आज का बिल मिलाकर कुल ₹%.0f हुआ है। कृपया देख लीजिएगा।".format(Locale.US, dueAmt, totalAmt)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Chat, contentDescription = null, tint = Color(0xFFC2410C), modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text("विनम्र तकादा (Face-to-Face)", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("#${item.routeIndex + 1} ${item.customer.name} (बकाया: ₹%.0f)".format(Locale.US, dueAmt), fontSize = 11.5.sp, color = colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFFFFBEB),
+                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("🗣️ ग्राहक से बोलने के लिए शब्द:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "\"$politeHindiScript\"",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF78350F),
+                            lineHeight = 19.sp
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            voiceManager.speak(politeHindiScript)
+                        },
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("बोलें (TTS)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = {
+                            val cleanPhone = item.customer.phone.replace("+", "").replace(" ", "").replace("-", "")
+                            val url = if (cleanPhone.isNotBlank()) {
+                                val fullPhone = if (cleanPhone.length == 10) "91$cleanPhone" else cleanPhone
+                                "https://api.whatsapp.com/send?phone=$fullPhone&text=" + URLEncoder.encode(politeHindiScript, "UTF-8")
+                            } else {
+                                "https://api.whatsapp.com/send?text=" + URLEncoder.encode(politeHindiScript, "UTF-8")
+                            }
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                        modifier = Modifier.weight(1.2f).height(42.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("WhatsApp", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("बंद करें")
             }
         },
         shape = RoundedCornerShape(14.dp),

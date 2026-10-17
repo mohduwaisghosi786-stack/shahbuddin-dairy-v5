@@ -102,25 +102,47 @@ shahbuddin-dairy-v5/
 
 ---
 
-## 🚀 Building & Running
+---
 
-### Prerequisites
-- Android Studio Ladybug / Koala or newer
-- JDK 17+
-- Android SDK 34+
+## 🤖 Universal AI Engine & Runner Mode 2.0
 
-### Build Release APK
+### 🌐 Plug & Play Any AI Model
+Shahbuddin Dairy includes a zero-dependency, universal AI client (`PrivateAiApiClient.kt`) that supports **any OpenAI-compatible API backend**:
+- **Local Private LLM Server:** Debian 13 / Ubuntu / Mac with `llama.cpp`, `vLLM`, or `Ollama`.
+- **Tailscale Encrypted Mesh:** Direct TLS connection via Tailscale MagicDNS (e.g. `https://your-node.ts.net`).
+- **Cloud AI APIs:** OpenRouter, Groq, OpenAI, LM Studio, or local reverse proxy.
+- **Auto-Detection:** In the **Total Hisab > AI Settings** screen, entering any base URL auto-discovers models via `/v1/models` and tests live ping latency.
+- **Offline Regex Fallback:** If the network or remote AI server goes down, the app automatically switches to the offline local Munshi engine with zero interruption.
+
+### 🏃‍♂️ Runner Mode 2.0 Super-Powers
+1. **Interactive In-Place Financial Editing:** Tap `आज बिल ✎`, `पुराना PBS ✎`, `कुल देय ✎`, or `एडवांस ✎` directly on the card to adjust amounts, immediately written to the Room SQLite database.
+2. **Dual-Sided Ergonomics:**
+   - **Left Drawer (72%):** Slide-out list of all 46 customers with search and delivery status.
+   - **Right Scrubber (36dp):** Vertical thumb dial (1..41) on the right edge so right-handed one-handed operation never obscures customer names.
+3. **AI Delivery Voice Notes:** 1-tap microphone button formats complex verbal delivery instructions into concise pinned notes (e.g., *"2nd floor par ghanti bajayein (Gate band)"*).
+4. **AI Customer Identity Cleaner:** Cleans messy names, emoji clutter, and isolates professions/nicknames into clean Room records.
+5. **AI Smart Liters / Routine Predictor:** One-tap suggestion based on 7-day delivery routine and cash patterns.
+6. **Courteous Due Reminder (Face-to-Face):** When balance > ₹500, offers Hindi TTS vocalization and 1-tap WhatsApp message.
+
+---
+
+## 🚀 Cloning, Building & Contributing
+
+Any developer or operator can clone, build, and deploy this project from any machine:
+
 ```bash
-# Build the production release APK
+# 1. Clone the repository
+git clone https://github.com/mohduwaisghosi786-stack/shahbuddin-dairy-v5.git
+cd shahbuddin-dairy-v5
+
+# 2. Build Debug APK
+./gradlew assembleDebug
+
+# 3. Install onto any connected Android device via ADB
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# 4. (Optional) Build Production Release APK
 ./gradlew assembleRelease
-
-# Output APK path:
-# app/build/outputs/apk/release/app-release.apk
-```
-
-### Install onto Device via ADB
-```bash
-adb install -r -d app/build/outputs/apk/release/app-release.apk
 ```
 
 ---

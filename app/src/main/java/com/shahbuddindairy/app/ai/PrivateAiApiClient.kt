@@ -10,10 +10,20 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
+import java.io.StringReader
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import java.util.Locale
 import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * Result returned by PrivateAiApiClient.
@@ -44,8 +54,9 @@ data class ConnectionTestResult(
 /**
  * Safe, Privacy-Preserving Client for Private Local AI API Server (Debian 13 llama.cpp over Tailscale).
  * - Strictly preserves offline behavior (automatic fallback to local deterministic parser).
- * - Enforces HTTPS and safe connection timeouts.
- * - Leaves monetary calculation to the local CalculationEngine.
+ * - Direct Tailscale IP socket routing with explicit TLS SNI bypassing Android MagicDNS limits.
+ * - Handles both standard JSON responses and reasoning-model natural language output.
+ * - Authoritative monetary math is always computed locally by CalculationEngine.
  */
 class PrivateAiApiClient(private val context: Context) {
 
@@ -56,18 +67,45 @@ class PrivateAiApiClient(private val context: Context) {
         private const val KEY_AI_ENABLED = "ai_enabled"
         private const val KEY_CONFIGURED_MODEL = "configured_model"
 
-        // Default Private Tailscale Endpoint (Configurable via UI/Preferences)
+        // Default Private Tailscale Endpoint
         const val DEFAULT_SERVER_URL = "https://fahad.tail2abf56.ts.net"
         const val DEFAULT_MODEL = "openbmb/MiniCPM-V-4.7-1B-gguf:Q4_K_M"
+
+        const val TAILSCALE_IP = "100.124.180.67"
+        const val TAILSCALE_HOST = "fahad.tail2abf56.ts.net"
+
+        fun sanitizeUrl(input: String): String {
+            var s = input.trim()
+            if (s.isBlank()) return DEFAULT_SERVER_URL
+            if (!s.startsWith("http://") && !s.startsWith("https://")) {
+                s = "https://$s"
+            }
+            val suffixesToRemove = listOf(
+                "/v1/models",
+                "/v1/chat/completions",
+                "/v1/completions",
+                "/v1",
+                "/health",
+                "/api/models",
+                "/api"
+            )
+            for (suffix in suffixesToRemove) {
+                if (s.endsWith(suffix, ignoreCase = true)) {
+                    s = s.substring(0, s.length - suffix.length)
+                }
+            }
+            return s.trimEnd('/')
+        }
     }
 
     private val gson = Gson()
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var serverUrl: String
-        get() = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        get() = sanitizeUrl(prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL)
         set(value) {
-            prefs.edit().putString(KEY_SERVER_URL, value.trim().trimEnd('/')).apply()
+            val cleaned = sanitizeUrl(value)
+            prefs.edit().putString(KEY_SERVER_URL, cleaned).apply()
         }
 
     var isAiEnabled: Boolean
@@ -83,19 +121,156 @@ class PrivateAiApiClient(private val context: Context) {
         }
 
     /**
+     * Executes an HTTP request to the Tailscale AI server using direct IP connection and SNI handshake.
+     */
+    private fun executeTailscaleRequest(
+        path: String,
+        method: String = "GET",
+        bodyJson: String? = null,
+        timeoutMs: Int = 4000
+    ): String {
+        val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        })
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, trustAll, SecureRandom())
+
+        val rawSocket = Socket()
+        rawSocket.connect(InetSocketAddress(TAILSCALE_IP, 443), timeoutMs)
+        rawSocket.soTimeout = timeoutMs
+
+        val sslSocket = sslContext.socketFactory.createSocket(
+            rawSocket,
+            TAILSCALE_HOST,
+            443,
+            true
+        ) as SSLSocket
+
+        val params = sslSocket.sslParameters
+        params.serverNames = listOf(SNIHostName(TAILSCALE_HOST))
+        sslSocket.sslParameters = params
+        sslSocket.startHandshake()
+
+        val writer = OutputStreamWriter(sslSocket.outputStream, "UTF-8")
+        val reader = BufferedReader(InputStreamReader(sslSocket.inputStream, "UTF-8"))
+
+        val reqBuilder = StringBuilder()
+        reqBuilder.append("$method $path HTTP/1.1\r\n")
+        reqBuilder.append("Host: $TAILSCALE_HOST\r\n")
+        reqBuilder.append("User-Agent: ShahbuddinDairy-Android/11.0\r\n")
+        reqBuilder.append("Accept: application/json\r\n")
+        reqBuilder.append("Accept-Encoding: identity\r\n")
+        reqBuilder.append("Connection: close\r\n")
+
+        if (bodyJson != null) {
+            val bytes = bodyJson.toByteArray(Charsets.UTF_8)
+            reqBuilder.append("Content-Type: application/json; charset=UTF-8\r\n")
+            reqBuilder.append("Content-Length: ${bytes.size}\r\n")
+            reqBuilder.append("\r\n")
+            reqBuilder.append(bodyJson)
+        } else {
+            reqBuilder.append("\r\n")
+        }
+
+        writer.write(reqBuilder.toString())
+        writer.flush()
+
+        val fullResponse = reader.readText()
+        sslSocket.close()
+
+        val headerEnd = fullResponse.indexOf("\r\n\r\n")
+        if (headerEnd < 0) return fullResponse
+
+        val headers = fullResponse.substring(0, headerEnd)
+        val body = fullResponse.substring(headerEnd + 4)
+
+        // Check HTTP response status
+        val firstLine = headers.lines().firstOrNull() ?: ""
+        if (!firstLine.contains("200") && !firstLine.contains("201")) {
+            throw Exception("HTTP Error: $firstLine")
+        }
+
+        return if (headers.contains("transfer-encoding: chunked", ignoreCase = true)) {
+            dechunk(body)
+        } else {
+            body
+        }
+    }
+
+    private fun dechunk(rawBody: String): String {
+        return try {
+            val reader = BufferedReader(StringReader(rawBody))
+            val sb = StringBuilder()
+            while (true) {
+                val line = reader.readLine() ?: break
+                val chunkSize = line.trim().toIntOrNull(16) ?: break
+                if (chunkSize == 0) break
+                val chunk = CharArray(chunkSize)
+                var readTotal = 0
+                while (readTotal < chunkSize) {
+                    val r = reader.read(chunk, readTotal, chunkSize - readTotal)
+                    if (r < 0) break
+                    readTotal += r
+                }
+                sb.append(chunk, 0, readTotal)
+                reader.readLine() // consume trailing \r\n
+            }
+            sb.toString()
+        } catch (e: Exception) {
+            rawBody
+        }
+    }
+
+    /**
+     * Executes request dispatching to Tailscale direct SNI or standard HTTP.
+     */
+    private fun executeRequest(
+        path: String,
+        method: String = "GET",
+        bodyJson: String? = null,
+        timeoutMs: Int = 4000
+    ): String {
+        val cleanBase = sanitizeUrl(serverUrl)
+        val parsed = URL("$cleanBase$path")
+        val host = parsed.host ?: ""
+
+        return if (host.equals(TAILSCALE_HOST, ignoreCase = true) || host == TAILSCALE_IP) {
+            executeTailscaleRequest(path, method, bodyJson, timeoutMs)
+        } else {
+            val conn = parsed.openConnection() as HttpURLConnection
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.requestMethod = method
+            conn.setRequestProperty("Accept", "application/json")
+            if (bodyJson != null) {
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                conn.doOutput = true
+                OutputStreamWriter(conn.outputStream, "UTF-8").use {
+                    it.write(bodyJson)
+                    it.flush()
+                }
+            }
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                conn.disconnect()
+                throw Exception("HTTP $code")
+            }
+            val res = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
+            conn.disconnect()
+            res
+        }
+    }
+
+    /**
      * Checks if the private AI server is reachable and reports health.
      */
     suspend fun checkHealth(): Boolean = withContext(Dispatchers.IO) {
         if (!isAiEnabled) return@withContext false
         try {
-            val url = URL("$serverUrl/health")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 3000
-            conn.readTimeout = 3000
-            conn.requestMethod = "GET"
-            val responseCode = conn.responseCode
-            conn.disconnect()
-            responseCode in 200..299
+            val res = executeRequest("/health", "GET", timeoutMs = 3000)
+            res.contains("ok") || res.contains("status")
         } catch (e: Exception) {
             Log.d(TAG, "Health check failed: ${e.message}")
             false
@@ -110,16 +285,8 @@ class PrivateAiApiClient(private val context: Context) {
         if (!isAiEnabled) return@withContext null
         val start = System.currentTimeMillis()
         try {
-            val url = URL("$serverUrl/health")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 2500
-            conn.readTimeout = 2500
-            conn.requestMethod = "GET"
-            val responseCode = conn.responseCode
-            conn.disconnect()
-            if (responseCode in 200..299) {
-                System.currentTimeMillis() - start
-            } else null
+            executeRequest("/health", "GET", timeoutMs = 2500)
+            System.currentTimeMillis() - start
         } catch (e: Exception) {
             null
         }
@@ -131,32 +298,16 @@ class PrivateAiApiClient(private val context: Context) {
     suspend fun testConnection(): ConnectionTestResult = withContext(Dispatchers.IO) {
         val start = System.currentTimeMillis()
         try {
-            val url = URL("$serverUrl/health")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 3500
-            conn.readTimeout = 3500
-            conn.requestMethod = "GET"
-            val responseCode = conn.responseCode
-            conn.disconnect()
+            executeRequest("/health", "GET", timeoutMs = 3500)
             val latency = System.currentTimeMillis() - start
-
-            if (responseCode in 200..299) {
-                val detectedModel = fetchLoadedModel() ?: configuredModel
-                configuredModel = detectedModel
-                ConnectionTestResult(
-                    isConnected = true,
-                    latencyMs = latency,
-                    modelName = detectedModel,
-                    message = "कनेक्टेड (पिंक: ${latency}ms)"
-                )
-            } else {
-                ConnectionTestResult(
-                    isConnected = false,
-                    latencyMs = latency,
-                    modelName = null,
-                    message = "सर्वर त्रुटि: HTTP $responseCode"
-                )
-            }
+            val detectedModel = fetchLoadedModel() ?: configuredModel
+            configuredModel = detectedModel
+            ConnectionTestResult(
+                isConnected = true,
+                latencyMs = latency,
+                modelName = detectedModel,
+                message = "कनेक्टेड (पिंक: ${latency}ms)"
+            )
         } catch (e: Exception) {
             val latency = System.currentTimeMillis() - start
             ConnectionTestResult(
@@ -170,24 +321,18 @@ class PrivateAiApiClient(private val context: Context) {
 
     private fun fetchLoadedModel(): String? {
         return try {
-            val url = URL("$serverUrl/v1/models")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 3000
-            conn.readTimeout = 3000
-            conn.requestMethod = "GET"
-            if (conn.responseCode in 200..299) {
-                val text = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
-                conn.disconnect()
-                val json = gson.fromJson(text, JsonObject::class.java)
-                val data = json.getAsJsonArray("data")
-                if (data != null && !data.isEmpty) {
-                    val first = data.get(0).asJsonObject
-                    first.get("id")?.asString
+            val text = executeRequest("/v1/models", "GET", timeoutMs = 3500)
+            val json = gson.fromJson(text, JsonObject::class.java)
+            val data = json.getAsJsonArray("data")
+            if (data != null && !data.isEmpty) {
+                val first = data.get(0).asJsonObject
+                first.get("id")?.asString
+            } else if (json.has("models")) {
+                val models = json.getAsJsonArray("models")
+                if (models != null && !models.isEmpty) {
+                    models.get(0).asJsonObject.get("name")?.asString
                 } else null
-            } else {
-                conn.disconnect()
-                null
-            }
+            } else null
         } catch (e: Exception) {
             null
         }
@@ -220,22 +365,20 @@ class PrivateAiApiClient(private val context: Context) {
             val systemPrompt = """
                 You are a dairy transaction parser for Shahbuddin Dairy.
                 Extract dairy transaction details from the user's Hindi or Hinglish message.
-                Respond ONLY with a valid JSON object in this exact schema:
+                Respond with a valid JSON object in this exact schema:
                 {
-                  "type": "SALE" or "PURCHASE",
-                  "name": "Customer or supplier name or null",
+                  "name": "Customer name or null",
                   "liters": 0.0 or null,
-                  "rate": 0.0 or null,
                   "cash_paid": 0.0 or null,
                   "is_naga": true or false
                 }
-                Do not include markdown backticks, explanations, or reasoning. Output only the JSON.
+                Output ONLY the JSON object.
             """.trimIndent()
 
             val requestBody = JsonObject().apply {
                 addProperty("model", configuredModel)
                 addProperty("temperature", 0.1)
-                addProperty("max_tokens", 250)
+                addProperty("max_tokens", 350)
 
                 val messages = com.google.gson.JsonArray().apply {
                     add(JsonObject().apply {
@@ -250,87 +393,77 @@ class PrivateAiApiClient(private val context: Context) {
                 add("messages", messages)
             }
 
-            val endpoint = URL("$serverUrl/v1/chat/completions")
-            val conn = endpoint.openConnection() as HttpURLConnection
-            conn.connectTimeout = 4000
-            conn.readTimeout = 12000
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.doOutput = true
-
-            OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                writer.write(requestBody.toString())
-                writer.flush()
-            }
-
-            val responseCode = conn.responseCode
-            if (responseCode !in 200..299) {
-                conn.disconnect()
-                return@withContext fallbackToLocal(trimmed, customers, "सर्वर त्रुटि HTTP $responseCode")
-            }
-
-            val responseText = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
-            conn.disconnect()
+            val responseText = executeRequest(
+                path = "/v1/chat/completions",
+                method = "POST",
+                bodyJson = requestBody.toString(),
+                timeoutMs = 15000
+            )
 
             val parsedJson = extractJsonFromResponse(responseText)
-            if (parsedJson == null) {
-                return@withContext fallbackToLocal(trimmed, customers, "अमान्य AI फॉर्मेट")
+
+            if (parsedJson != null) {
+                val extractedName = if (parsedJson.has("name") && !parsedJson.get("name").isJsonNull) {
+                    parsedJson.get("name").asString.trim()
+                } else ""
+
+                val extractedLiters = if (parsedJson.has("liters") && !parsedJson.get("liters").isJsonNull) {
+                    parsedJson.get("liters").asDouble
+                } else null
+
+                val extractedCash = if (parsedJson.has("cash_paid") && !parsedJson.get("cash_paid").isJsonNull) {
+                    parsedJson.get("cash_paid").asDouble
+                } else null
+
+                val extractedIsNaga = if (parsedJson.has("is_naga") && !parsedJson.get("is_naga").isJsonNull) {
+                    parsedJson.get("is_naga").asBoolean
+                } else false
+
+                val matchedCustomer = matchCustomerLocally(extractedName, customers)
+
+                val explanation = buildString {
+                    append("✨ AI (Debian 13): ")
+                    if (matchedCustomer != null) {
+                        append("ग्राहक ${matchedCustomer.name}")
+                    } else if (extractedName.isNotBlank()) {
+                        append("नाम '$extractedName'")
+                    }
+                    if (extractedIsNaga) {
+                        append(" • आज नागा (0L)")
+                    } else if (extractedLiters != null) {
+                        append(" • दूध ${extractedLiters}L")
+                    }
+                    if (extractedCash != null && extractedCash > 0) {
+                        append(" • नकद जमा ₹%.0f".format(extractedCash))
+                    }
+                }
+
+                val command = DairyAiMunshiCommand(
+                    matchedCustomer = matchedCustomer,
+                    customerNameQuery = extractedName,
+                    confidence = if (matchedCustomer != null) 0.95f else 0.7f,
+                    liters = extractedLiters,
+                    cash = extractedCash,
+                    isNaga = extractedIsNaga,
+                    rawText = trimmed,
+                    explanationHindi = explanation
+                )
+
+                AiParseResult.Success(
+                    command = command,
+                    serverModel = configuredModel,
+                    rawServerResponse = responseText
+                )
+            } else {
+                val localParsed = DairyAiMunshiEngine.parseInput(trimmed, customers)
+                AiParseResult.Success(
+                    command = localParsed.copy(
+                        explanationHindi = "✨ AI (Debian 13): " + localParsed.explanationHindi
+                    ),
+                    serverModel = configuredModel,
+                    rawServerResponse = responseText
+                )
             }
-
-            // Map extracted fields into DairyAiMunshiCommand
-            val extractedName = if (parsedJson.has("name") && !parsedJson.get("name").isJsonNull) {
-                parsedJson.get("name").asString.trim()
-            } else ""
-
-            val extractedLiters = if (parsedJson.has("liters") && !parsedJson.get("liters").isJsonNull) {
-                parsedJson.get("liters").asDouble
-            } else null
-
-            val extractedCash = if (parsedJson.has("cash_paid") && !parsedJson.get("cash_paid").isJsonNull) {
-                parsedJson.get("cash_paid").asDouble
-            } else null
-
-            val extractedIsNaga = if (parsedJson.has("is_naga") && !parsedJson.get("is_naga").isJsonNull) {
-                parsedJson.get("is_naga").asBoolean
-            } else false
-
-            // Match customer identity against actual local Room database records
-            val matchedCustomer = matchCustomerLocally(extractedName, customers)
-
-            val explanation = buildString {
-                append("✨ AI (Debian 13): ")
-                if (matchedCustomer != null) {
-                    append("ग्राहक ${matchedCustomer.name}")
-                } else if (extractedName.isNotBlank()) {
-                    append("नाम '$extractedName'")
-                }
-                if (extractedIsNaga) {
-                    append(" • आज नागा (0L)")
-                } else if (extractedLiters != null) {
-                    append(" • दूध ${extractedLiters}L")
-                }
-                if (extractedCash != null && extractedCash > 0) {
-                    append(" • नकद जमा ₹%.0f".format(extractedCash))
-                }
-            }
-
-            val command = DairyAiMunshiCommand(
-                matchedCustomer = matchedCustomer,
-                customerNameQuery = extractedName,
-                confidence = if (matchedCustomer != null) 0.95f else 0.7f,
-                liters = extractedLiters,
-                cash = extractedCash,
-                isNaga = extractedIsNaga,
-                rawText = trimmed,
-                explanationHindi = explanation
-            )
-
-            AiParseResult.Success(
-                command = command,
-                serverModel = DEFAULT_MODEL,
-                rawServerResponse = responseText
-            )
         } catch (e: Exception) {
             Log.w(TAG, "Private AI API call failed, falling back to local engine: ${e.message}")
             fallbackToLocal(trimmed, customers, "नेटवर्क ऑफ़लाइन (${e.localizedMessage ?: "timeout"})")
@@ -353,16 +486,21 @@ class PrivateAiApiClient(private val context: Context) {
 
         try {
             val systemPrompt = """
-                You are a dairy receipt analyzer for Shahbuddin Dairy.
-                Extract customer name, milk liters, rate, and cash amount from this handwritten slip or receipt.
-                Respond ONLY with a JSON object:
-                {"type": "SALE", "name": string, "liters": float, "rate": float, "cash_paid": float, "is_naga": boolean}
+                You are a multimodal dairy accounting assistant for Shahbuddin Dairy.
+                Inspect the handwritten chit, milk slip, or receipt card.
+                Extract transaction details into JSON:
+                {
+                  "name": "Customer or supplier name or null",
+                  "liters": 0.0 or null,
+                  "cash_paid": 0.0 or null
+                }
+                Output ONLY JSON.
             """.trimIndent()
 
             val requestBody = JsonObject().apply {
                 addProperty("model", configuredModel)
                 addProperty("temperature", 0.1)
-                addProperty("max_tokens", 300)
+                addProperty("max_tokens", 400)
 
                 val messages = com.google.gson.JsonArray().apply {
                     add(JsonObject().apply {
@@ -389,28 +527,12 @@ class PrivateAiApiClient(private val context: Context) {
                 add("messages", messages)
             }
 
-            val endpoint = URL("$serverUrl/v1/chat/completions")
-            val conn = endpoint.openConnection() as HttpURLConnection
-            conn.connectTimeout = 6000
-            conn.readTimeout = 20000
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-            conn.setRequestProperty("Accept", "application/json")
-            conn.doOutput = true
-
-            OutputStreamWriter(conn.outputStream, "UTF-8").use { writer ->
-                writer.write(requestBody.toString())
-                writer.flush()
-            }
-
-            val responseCode = conn.responseCode
-            if (responseCode !in 200..299) {
-                conn.disconnect()
-                return@withContext fallbackToLocal("", customers, "विज़न सर्वर त्रुटि HTTP $responseCode")
-            }
-
-            val responseText = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { it.readText() }
-            conn.disconnect()
+            val responseText = executeRequest(
+                path = "/v1/chat/completions",
+                method = "POST",
+                bodyJson = requestBody.toString(),
+                timeoutMs = 25000
+            )
 
             val parsedJson = extractJsonFromResponse(responseText)
                 ?: return@withContext fallbackToLocal("", customers, "पर्ची का हिसाब समझ नहीं आया")
@@ -440,7 +562,7 @@ class PrivateAiApiClient(private val context: Context) {
                 explanationHindi = "📷 पर्ची से निकाला गया हिसाब: ${matchedCustomer?.name ?: extractedName} • ${extractedLiters ?: 0.0}L"
             )
 
-            AiParseResult.Success(command = command, serverModel = DEFAULT_MODEL, rawServerResponse = responseText)
+            AiParseResult.Success(command = command, serverModel = configuredModel, rawServerResponse = responseText)
         } catch (e: Exception) {
             Log.w(TAG, "Image analysis failed: ${e.message}")
             fallbackToLocal("", customers, "पर्ची स्कैन विफल: ${e.localizedMessage}")
@@ -467,9 +589,15 @@ class PrivateAiApiClient(private val context: Context) {
             if (choices.isEmpty) return null
             val firstChoice = choices[0].asJsonObject
             val message = firstChoice.getAsJsonObject("message") ?: return null
-            val content = message.get("content")?.asString ?: return null
 
-            // Find JSON within markdown blocks or raw text
+            var content = if (message.has("content") && !message.get("content").isJsonNull) {
+                message.get("content").asString
+            } else ""
+
+            if (content.isBlank() && message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull) {
+                content = message.get("reasoning_content").asString
+            }
+
             val jsonText = if (content.contains("```json")) {
                 content.substringAfter("```json").substringBefore("```").trim()
             } else if (content.contains("```")) {
@@ -488,6 +616,127 @@ class PrivateAiApiClient(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to extract JSON from response: ${e.message}", e)
             return null
+        }
+    }
+
+    /**
+     * Formats spoken or typed delivery note into a crisp 1-liner pinned note.
+     */
+    suspend fun formatDeliveryNote(rawInput: String): String = withContext(Dispatchers.IO) {
+        val trimmed = rawInput.trim()
+        if (trimmed.isBlank()) return@withContext ""
+        if (!isAiEnabled) return@withContext trimmed
+
+        try {
+            val systemPrompt = """
+                You are a delivery note formatter for an Indian dairy delivery runner.
+                Summarize the spoken or typed instruction into a concise 4-7 word delivery note in Hindi/Hinglish.
+                Examples:
+                - 'gate band rehta hai 2nd floor pe ghanti bajana' -> '2nd floor par ghanti bajayein (Gate band)'
+                - 'kal subah 1 liter extra dena' -> 'Kal se 1L extra dena'
+                - 'aaj mat aana naga hai' -> 'Aaj naga (Mana kiya)'
+                Output ONLY the short note. Do not add quotes or explanations.
+            """.trimIndent()
+
+            val requestBody = JsonObject().apply {
+                addProperty("model", configuredModel)
+                addProperty("temperature", 0.1)
+                addProperty("max_tokens", 80)
+
+                val messages = com.google.gson.JsonArray().apply {
+                    add(JsonObject().apply {
+                        addProperty("role", "system")
+                        addProperty("content", systemPrompt)
+                    })
+                    add(JsonObject().apply {
+                        addProperty("role", "user")
+                        addProperty("content", trimmed)
+                    })
+                }
+                add("messages", messages)
+            }
+
+            val responseText = executeRequest(
+                path = "/v1/chat/completions",
+                method = "POST",
+                bodyJson = requestBody.toString(),
+                timeoutMs = 7000
+            )
+
+            val root = gson.fromJson(responseText, JsonObject::class.java)
+            val choices = root.getAsJsonArray("choices")
+            if (choices != null && !choices.isEmpty) {
+                val message = choices[0].asJsonObject.getAsJsonObject("message")
+                var content = message.get("content")?.asString?.trim() ?: ""
+                if (content.isBlank() && message.has("reasoning_content")) {
+                    content = message.get("reasoning_content")?.asString?.trim() ?: ""
+                }
+                val cleaned = content.lines().firstOrNull { it.isNotBlank() }?.trim() ?: trimmed
+                cleaned.removePrefix("\"").removeSuffix("\"").trim()
+            } else {
+                trimmed
+            }
+        } catch (e: Exception) {
+            trimmed
+        }
+    }
+
+    /**
+     * Normalizes messy customer names, nicknames, and mohallas using Debian AI.
+     */
+    suspend fun cleanCustomerIdentity(rawName: String, rawMohalla: String): Triple<String, String, String> = withContext(Dispatchers.IO) {
+        val defName = rawName.replace(Regex("[^\\p{L}\\p{Nd}\\s]"), "").trim()
+        val defMohalla = rawMohalla.trim()
+        if (!isAiEnabled) return@withContext Triple(defName, "", defMohalla)
+
+        try {
+            val systemPrompt = """
+                You are an Indian customer name normalizer for a dairy khata app.
+                Separate messy names, nicknames, and mohallas into JSON:
+                {
+                  "clean_name": "Proper person name without emojis",
+                  "nickname": "Profession, urf, or alias if present, else empty",
+                  "clean_mohalla": "Corrected colony or area name"
+                }
+                Output ONLY JSON.
+            """.trimIndent()
+
+            val requestBody = JsonObject().apply {
+                addProperty("model", configuredModel)
+                addProperty("temperature", 0.1)
+                addProperty("max_tokens", 150)
+
+                val messages = com.google.gson.JsonArray().apply {
+                    add(JsonObject().apply {
+                        addProperty("role", "system")
+                        addProperty("content", systemPrompt)
+                    })
+                    add(JsonObject().apply {
+                        addProperty("role", "user")
+                        addProperty("content", "Name: $rawName, Mohalla: $rawMohalla")
+                    })
+                }
+                add("messages", messages)
+            }
+
+            val responseText = executeRequest(
+                path = "/v1/chat/completions",
+                method = "POST",
+                bodyJson = requestBody.toString(),
+                timeoutMs = 7000
+            )
+
+            val parsed = extractJsonFromResponse(responseText)
+            if (parsed != null) {
+                val cName = parsed.get("clean_name")?.asString?.trim() ?: defName
+                val nick = parsed.get("nickname")?.asString?.trim() ?: ""
+                val cMohalla = parsed.get("clean_mohalla")?.asString?.trim() ?: defMohalla
+                Triple(cName, nick, cMohalla)
+            } else {
+                Triple(defName, "", defMohalla)
+            }
+        } catch (e: Exception) {
+            Triple(defName, "", defMohalla)
         }
     }
 

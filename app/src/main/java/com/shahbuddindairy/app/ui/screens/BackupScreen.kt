@@ -966,6 +966,8 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         value = aiServerUrlInput,
                         onValueChange = { aiServerUrlInput = it },
                         label = { Text("Server Base URL (Tailscale HTTPS)") },
+                        placeholder = { Text("https://fahad.tail2abf56.ts.net") },
+                        supportingText = { Text("💡 नोट: /v1/models लिखने की जरूरत नहीं, केवल बेस लिंक रखें", fontSize = 10.5.sp) },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colorScheme.primary,
@@ -1033,9 +1035,9 @@ fun BackupScreen(viewModel: BackupViewModel) {
                                 isTestingAi = true
                                 aiTestResult = null
                                 coroutineScope.launch {
-                                    // Temporarily set url to test
                                     aiClient.serverUrl = aiServerUrlInput
                                     aiClient.configuredModel = aiModelInput
+                                    aiServerUrlInput = aiClient.serverUrl
                                     val result = aiClient.testConnection()
                                     aiTestResult = result
                                     if (result.modelName != null) {
@@ -1064,6 +1066,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                                 aiClient.isAiEnabled = aiEnabled
                                 aiClient.serverUrl = aiServerUrlInput
                                 aiClient.configuredModel = aiModelInput
+                                aiServerUrlInput = aiClient.serverUrl
                                 android.widget.Toast.makeText(context, "AI सेटिंग्स सुरक्षित सहेजी गईं ✓", android.widget.Toast.LENGTH_SHORT).show()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),

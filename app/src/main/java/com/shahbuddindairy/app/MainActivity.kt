@@ -115,8 +115,8 @@ fun MainAppNavHost() {
         BottomNavItem(Screen.TotalHisab.route, "Total Hisab", Icons.Default.Calculate)
     )
 
-    // Hide bottom bar on detail screens to maximize vertical screen space for Khata ledger
-    val showBottomBar = currentRoute in bottomNavItems.map { it.route } || currentRoute == "backup"
+    // Hide bottom bar on detail screens and Runner Mode to maximize vertical screen space
+    val showBottomBar = (currentRoute in bottomNavItems.map { it.route } || currentRoute == "backup") && currentRoute != Screen.DailyTask.route
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),

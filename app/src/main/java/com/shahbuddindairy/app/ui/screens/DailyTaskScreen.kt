@@ -78,6 +78,7 @@ import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PushPin
@@ -255,6 +256,7 @@ fun DailyTaskScreen(
     // Runner 2.0 Visual Navigation States (Panels 1, 2, 3, 4)
     var showSideTray by remember { mutableStateOf(false) }
     var showQuickJumpDialog by remember { mutableStateOf(false) }
+    var showGuidelineDialog by remember { mutableStateOf(false) }
     var scrubberBubbleText by remember { mutableStateOf<String?>(null) }
     var skippedCustomerIds by remember { mutableStateOf(listOf<Long>()) }
 
@@ -441,6 +443,26 @@ fun DailyTaskScreen(
                             Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(2.dp))
                             Text("नकद", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+
+                    // [❓ नियम / गाइड]
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                        modifier = Modifier.clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            showGuidelineDialog = true
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.HelpOutline, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text("गाइड", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurface)
                         }
                     }
                 }
@@ -657,11 +679,16 @@ fun DailyTaskScreen(
                 message = "आज के लिए कोई ग्राहक नहीं है।"
             )
         } else if (currentItem != null) {
-            Box(
+            Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
                 DailyTaskRunnerCard(
                     item = currentItem,
                     currentIndex = currentIndex,
@@ -813,48 +840,42 @@ fun DailyTaskScreen(
                     onPoliteReminderClicked = { faceToFaceReminderCustomer = currentItem }
                 )
 
-                // FLOATING PULL-TAB ON RIGHT EDGE (Panel 2 trigger)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .clip(RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
-                        .background(colorScheme.primaryContainer)
-                        .border(1.dp, colorScheme.primary, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showSideTray = true
-                        }
-                        .padding(horizontal = 5.dp, vertical = 12.dp)
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.ChevronLeft, contentDescription = "Open Drawer", tint = colorScheme.primary, modifier = Modifier.size(16.dp))
-                        Text("${cards.size}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                    }
-                }
-
-                // Instant Delivery Checkmark Animation Overlay
-                if (deliveredAnimCustomer != null) {
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xFF15803D),
-                        shadowElevation = 12.dp,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    // Instant Delivery Checkmark Animation Overlay
+                    if (deliveredAnimCustomer != null) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF15803D),
+                            shadowElevation = 12.dp,
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(24.dp)
                         ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text("DELIVERED ✓", fontWeight = FontWeight.Black, fontSize = 17.sp, color = Color.White)
-                                Text(deliveredAnimCustomer ?: "", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.95f))
+                            Row(
+                                modifier = Modifier.padding(horizontal = 22.dp, vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text("DELIVERED ✓", fontWeight = FontWeight.Black, fontSize = 17.sp, color = Color.White)
+                                    Text(deliveredAnimCustomer ?: "", fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.95f))
+                                }
                             }
                         }
                     }
                 }
+
+                // PERMANENT RIGHT FAST THUMB SCRUBBER (28dp width, zero card overlap)
+                RunnerPermanentRightScrubber(
+                    cards = cards,
+                    currentIndex = currentIndex,
+                    currentItemId = currentItem.customer.id,
+                    onSelectCustomer = { cId ->
+                        activeCustomerId = cId
+                        viewModel.setActiveRunnerCustomerId(cId)
+                    },
+                    onScrubberBubbleChanged = { scrubberBubbleText = it }
+                )
             }
         }
     }
@@ -1219,20 +1240,25 @@ fun DailyTaskScreen(
         )
     }
 
-    // TIER 2: SLIDE-OUT SIDE MINI TRAY WITH FAST THUMB SCRUBBER (PANELS 1 & 2)
+    // TIER 2: SLIDE-OUT LEFT CUSTOMER DRAWER (PANEL 2)
     if (showSideTray) {
-        RunnerSideTrayWithScrubber(
+        RunnerLeftCustomerDrawer(
             cards = cards,
             currentItemId = currentItem?.customer?.id,
             onSelectCustomer = { cId ->
                 activeCustomerId = cId
                 viewModel.setActiveRunnerCustomerId(cId)
             },
-            onScrubberBubbleChanged = { scrubberBubbleText = it },
             onClose = {
                 showSideTray = false
-                scrubberBubbleText = null
             }
+        )
+    }
+
+    // TIER 2.5: IN-APP RUNNER 3.0 GUIDELINES MODAL
+    if (showGuidelineDialog) {
+        RunnerGuidelineDialog(
+            onDismiss = { showGuidelineDialog = false }
         )
     }
 
@@ -1711,26 +1737,139 @@ fun QuickJumpKeypadDialog(
 }
 
 /**
- * TIER 2: SLIDE-OUT SIDE MINI TRAY WITH FAST THUMB SCRUBBER (PANELS 1 & 2)
- * Slide-out drawer showing all 46 customers with status dots and a vertical drag scrubber.
+ * PERMANENT RIGHT FAST THUMB SCRUBBER (Panel 1)
+ * Permanent 28dp right-edge dial for 1-handed thumb scrubbing. Zero overlap with delivery cards.
  */
 @Composable
-fun RunnerSideTrayWithScrubber(
+fun RunnerPermanentRightScrubber(
     cards: List<DailyCustomerCardItem>,
+    currentIndex: Int,
     currentItemId: Long?,
     onSelectCustomer: (Long) -> Unit,
     onScrubberBubbleChanged: (String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
+    var scrubberHeightPx by remember { mutableFloatStateOf(1f) }
+
+    Surface(
+        color = colorScheme.surfaceContainerHigh.copy(alpha = 0.9f),
+        shape = RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp),
+        border = BorderStroke(1.dp, colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        modifier = modifier
+            .fillMaxHeight()
+            .width(28.dp)
+            .padding(vertical = 4.dp)
+            .onGloballyPositioned { layoutCoordinates ->
+                scrubberHeightPx = layoutCoordinates.size.height.toFloat().coerceAtLeast(1f)
+            }
+            .pointerInput(cards) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        val fraction = (offset.y / scrubberHeightPx).coerceIn(0f, 0.999f)
+                        val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
+                        val targetCard = cards[targetIdx]
+                        onSelectCustomer(targetCard.customer.id)
+                        onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        val fraction = (change.position.y / scrubberHeightPx).coerceIn(0f, 0.999f)
+                        val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
+                        val targetCard = cards[targetIdx]
+                        if (targetCard.customer.id != currentItemId) {
+                            onSelectCustomer(targetCard.customer.id)
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
+                    },
+                    onDragEnd = {
+                        onScrubberBubbleChanged(null)
+                    },
+                    onDragCancel = {
+                        onScrubberBubbleChanged(null)
+                    }
+                )
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(vertical = 4.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            val step = if (cards.size > 14) (cards.size / 10).coerceAtLeast(1) else 1
+            for (i in 0 until cards.size step step) {
+                val card = cards[i]
+                val isCurrent = card.customer.id == currentItemId
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                isCurrent -> colorScheme.primary
+                                card.isDone -> Color(0xFF15803D).copy(alpha = 0.25f)
+                                card.isNaga -> Color(0xFFDC2626).copy(alpha = 0.25f)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSelectCustomer(card.customer.id)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${i + 1}",
+                        fontSize = 9.sp,
+                        fontWeight = if (isCurrent) FontWeight.Black else FontWeight.Bold,
+                        color = when {
+                            isCurrent -> Color.White
+                            card.isDone -> Color(0xFF15803D)
+                            card.isNaga -> Color(0xFFDC2626)
+                            else -> colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * TIER 2: SLIDE-OUT LEFT CUSTOMER DRAWER (Panel 2)
+ * Slide-out customer directory from left edge with search, filter tabs and status dots.
+ */
+@Composable
+fun RunnerLeftCustomerDrawer(
+    cards: List<DailyCustomerCardItem>,
+    currentItemId: Long?,
+    onSelectCustomer: (Long) -> Unit,
     onClose: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
-    val filteredCards = remember(cards, searchQuery) {
-        if (searchQuery.isBlank()) cards
-        else cards.filter {
-            it.customer.name.contains(searchQuery, ignoreCase = true) ||
-            it.customer.mohalla.contains(searchQuery, ignoreCase = true) ||
-            (it.routeIndex + 1).toString().contains(searchQuery)
+    var selectedFilter by remember { mutableStateOf("ALL") }
+
+    val filteredCards = remember(cards, searchQuery, selectedFilter) {
+        cards.filter { item ->
+            val matchesFilter = when (selectedFilter) {
+                "DONE" -> item.isDone
+                "NAGA" -> item.isNaga
+                "PENDING" -> !item.isDone && !item.isNaga
+                else -> true
+            }
+            val matchesSearch = if (searchQuery.isBlank()) true else {
+                item.customer.name.contains(searchQuery, ignoreCase = true) ||
+                item.customer.mohalla.contains(searchQuery, ignoreCase = true) ||
+                (item.routeIndex + 1).toString().contains(searchQuery)
+            }
+            matchesFilter && matchesSearch
         }
     }
 
@@ -1740,17 +1879,16 @@ fun RunnerSideTrayWithScrubber(
             .background(Color.Black.copy(alpha = 0.45f))
             .clickable { onClose() }
     ) {
-        // PANEL 2: LEFT-SIDE SLIDE-OUT CUSTOMER LIST (72% width)
         Surface(
             modifier = Modifier
                 .fillMaxHeight()
-                .fillMaxWidth(0.72f)
+                .fillMaxWidth(0.78f)
                 .align(Alignment.CenterStart)
                 .clickable(enabled = false) {}, // prevent click-through
             color = colorScheme.surface,
             shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
             border = BorderStroke(1.dp, colorScheme.outlineVariant),
-            shadowElevation = 8.dp
+            shadowElevation = 12.dp
         ) {
             Column(
                 modifier = Modifier
@@ -1764,8 +1902,8 @@ fun RunnerSideTrayWithScrubber(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("सभी ग्राहक", fontSize = 15.sp, fontWeight = FontWeight.Black)
-                        Text("${cards.size} में से ग्राहक चुनें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        Text("ग्राहकों की सूची", fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        Text("कुल ${cards.size} ग्राहक • चुनें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(18.dp))
@@ -1778,22 +1916,74 @@ fun RunnerSideTrayWithScrubber(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("नाम, गली या #...", fontSize = 12.sp) },
+                    placeholder = { Text("नाम, गली या # खोजें...", fontSize = 12.sp) },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(8.dp),
                     textStyle = TextStyle(fontSize = 12.5.sp)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Filter tabs: [सभी] [बाकी] [पूर्ण] [नागा]
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val allCount = cards.size
+                    val pendingCount = cards.count { !it.isDone && !it.isNaga }
+                    val doneCount = cards.count { it.isDone }
+                    val nagaCount = cards.count { it.isNaga }
+
+                    listOf(
+                        "ALL" to "सभी ($allCount)",
+                        "PENDING" to "बाकी ($pendingCount)",
+                        "DONE" to "पूर्ण ($doneCount)",
+                        "NAGA" to "नागा ($nagaCount)"
+                    ).forEach { (fKey, fLabel) ->
+                        val isSel = selectedFilter == fKey
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSel) colorScheme.primary else colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(0.5.dp, if (isSel) colorScheme.primary else colorScheme.outlineVariant),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedFilter = fKey
+                                }
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = fLabel,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) Color.White else colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // Customer List
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    itemsIndexed(filteredCards) { idx, item ->
+                    itemsIndexed(filteredCards) { _, item ->
                         val isCurrent = item.customer.id == currentItemId
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -1822,7 +2012,7 @@ fun RunnerSideTrayWithScrubber(
                                 // Status Dot
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(9.dp)
                                         .clip(CircleShape)
                                         .background(
                                             when {
@@ -1848,6 +2038,8 @@ fun RunnerSideTrayWithScrubber(
                                 }
                                 if (item.isDone) {
                                     Text("✓", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                                } else if (item.isNaga) {
+                                    Text("✕", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
                                 }
                             }
                         }
@@ -1855,76 +2047,109 @@ fun RunnerSideTrayWithScrubber(
                 }
             }
         }
+    }
+}
 
-        // PANEL 1: RIGHT-EDGE VERTICAL FAST THUMB SCRUBBER (Separate surface on Right side)
-        var scrubberHeightPx by remember { mutableFloatStateOf(1f) }
-        Surface(
-            color = colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
-            border = BorderStroke(1.dp, colorScheme.outlineVariant),
-            shadowElevation = 8.dp,
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(36.dp)
-                .align(Alignment.CenterEnd)
-                .clickable(enabled = false) {}
-                .onGloballyPositioned { layoutCoordinates ->
-                    scrubberHeightPx = layoutCoordinates.size.height.toFloat()
-                }
-                .pointerInput(cards) {
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            val fraction = (offset.y / scrubberHeightPx).coerceIn(0f, 0.999f)
-                            val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
-                            val targetCard = cards[targetIdx]
-                            onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            val fraction = (change.position.y / scrubberHeightPx).coerceIn(0f, 0.999f)
-                            val targetIdx = (fraction * cards.size).toInt().coerceIn(0, cards.size - 1)
-                            val targetCard = cards[targetIdx]
-                            onScrubberBubbleChanged("#${targetCard.routeIndex + 1} ${targetCard.customer.name}\n${targetCard.customer.defaultLiters}L • ${targetCard.customer.mohalla}")
-                        },
-                        onDragEnd = {
-                            onScrubberBubbleChanged(null)
-                        },
-                        onDragCancel = {
-                            onScrubberBubbleChanged(null)
-                        }
-                    )
-                }
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
-                horizontalAlignment = Alignment.CenterHorizontally
+/**
+ * IN-APP RUNNER 3.0 GUIDELINES & TOUCH RULES MODAL
+ */
+@Composable
+fun RunnerGuidelineDialog(
+    onDismiss: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                val step = (cards.size / 8).coerceAtLeast(1)
-                for (i in 0 until cards.size step step) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(if (cards[i].customer.id == currentItemId) colorScheme.primary else Color.Transparent)
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onSelectCustomer(cards[i].customer.id)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "${i + 1}",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (cards[i].customer.id == currentItemId) Color.White else colorScheme.onSurfaceVariant
-                        )
+                Text("समझ गया (ठीक है) ✓", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+            }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.HelpOutline, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("रनर 3.0 निर्देश व नियम", fontSize = 17.sp, fontWeight = FontWeight.Black)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Section 1: Gestures
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("👆 टच जेस्चर (Touch Gestures)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("• 👈 स्वाइप बायाँ: अगला ग्राहक (Next)", fontSize = 11.5.sp)
+                        Text("• 👉 स्वाइप दायाँ: पिछला ग्राहक (Prev)", fontSize = 11.5.sp)
+                        Text("• ⬇️ स्वाइप नीचे: तुरंत डिलीवर करें (Deliver ✓)", fontSize = 11.5.sp)
+                        Text("• ⬆️ स्वाइप ऊपर: नागा दर्ज करें (Naga ✕)", fontSize = 11.5.sp)
+                        Text("• 👆👆 डबल-टैप: पूरा बिल नकद बॉक्स में स्वतः भरें", fontSize = 11.5.sp)
+                    }
+                }
+
+                // Section 2: 4 Financial Boxes
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("📊 4 हिसाब टाइल्स (1-टैप एडिट)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("• आज बिल ✎: आज के बिल पर टैप करके सीधे एडिट करें", fontSize = 11.5.sp, color = Color(0xFF1E3A8A))
+                        Text("• पुराना PBS ✎: पुराना बकाया सीधे बदलें", fontSize = 11.5.sp, color = Color(0xFF1E3A8A))
+                        Text("• कुल देय ✎: कुल देय राशि तुरंत सेट करें", fontSize = 11.5.sp, color = Color(0xFF1E3A8A))
+                        Text("• एडवांस ✎: ग्राहक का जमा एडवांस एडजस्ट करें", fontSize = 11.5.sp, color = Color(0xFF1E3A8A))
+                    }
+                }
+
+                // Section 3: Navigation
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = colorScheme.surfaceContainerHigh,
+                    border = BorderStroke(1.dp, colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("🎚️ फास्ट नेविगेशन", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("• दायाँ स्क्रबर: अँगूठे से 1..42 डायल स्लाइड करके किसी भी ग्राहक पर सीधे कूदें", fontSize = 11.5.sp)
+                        Text("• [📋 सूची]: बाएँ तरफ से पूरी ग्राहक लिस्ट खोलें, खोजें या स्टेटस फ़िल्टर करें", fontSize = 11.5.sp)
+                        Text("• [⚡ जंप]: कीपैड से ग्राहक नंबर दर्ज करके पहुँचें", fontSize = 11.5.sp)
+                    }
+                }
+
+                // Section 4: AI & WhatsApp
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF0FDF4),
+                    border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("🤖 AI मुंशी और आवाज (TTS)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("• आवाज: हर डिलीवरी पर बोलकर पुष्टि करेगा", fontSize = 11.5.sp, color = Color(0xFF14532D))
+                        Text("• AI नोट (🎤): ग्राहक की हिदायत बोलकर सेव करें", fontSize = 11.5.sp, color = Color(0xFF14532D))
+                        Text("• AI सुझाव: दूध मात्रा का स्वतः सटीक अनुमान", fontSize = 11.5.sp, color = Color(0xFF14532D))
+                        Text("• WhatsApp (↗): 1-क्लिक में ग्राहक को पक्की पर्ची भेजें", fontSize = 11.5.sp, color = Color(0xFF14532D))
                     }
                 }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -2629,22 +2854,22 @@ fun DailyTaskRunnerCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // 5. CASH RECEIVED ROW & QUICK PILLS (52dp height)
+                // 5. CASH RECEIVED ROW & QUICK PILLS (58dp height, zero vertical clipping)
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
                         value = item.currentCashInput,
                         onValueChange = onCashChanged,
-                        placeholder = { Text("0") },
-                        label = { Text("नकद प्राप्त (₹)", fontSize = 10.5.sp) },
+                        placeholder = { Text("0", fontSize = 16.sp, color = colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                        label = { Text("नकद (₹)", fontSize = 10.sp) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        textStyle = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D)),
+                        textStyle = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color(0xFF15803D)),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1.1f).fillMaxHeight()
+                        modifier = Modifier.weight(1.15f).fillMaxHeight()
                     )
 
                     // Quick pills: [₹50] [₹100] [₹200] [Exact]

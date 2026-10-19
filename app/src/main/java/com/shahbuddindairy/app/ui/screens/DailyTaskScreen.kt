@@ -758,12 +758,16 @@ fun DailyTaskScreen(
                     },
                     onNagaClicked = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        voiceManager.speakNaga(currentItem.customer.name)
-                        val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = true)
-                        viewModel.markNaga(currentItem) {
-                            if (nextTargetId != null) {
-                                activeCustomerId = nextTargetId
-                                viewModel.setActiveRunnerCustomerId(nextTargetId)
+                        if (currentItem.isNaga) {
+                            viewModel.undoLastDeliveryAction(currentItem.customer.id)
+                        } else {
+                            voiceManager.speakNaga(currentItem.customer.name)
+                            val nextTargetId = viewModel.findSmartNextCustomerId(currentItem.customer.id, cards, skipCompleted = true)
+                            viewModel.markNaga(currentItem) {
+                                if (nextTargetId != null) {
+                                    activeCustomerId = nextTargetId
+                                    viewModel.setActiveRunnerCustomerId(nextTargetId)
+                                }
                             }
                         }
                     },
@@ -2955,37 +2959,67 @@ fun DailyTaskRunnerCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Naga Button
-                    OutlinedButton(
-                        onClick = onNagaClicked,
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (item.isNaga) Color.White else colorScheme.error,
-                            containerColor = if (item.isNaga) colorScheme.error else Color.Transparent
-                        ),
+                    // 1. Naga Button [❌ नागा]
+                    Surface(
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(0.28f).height(54.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                        color = if (item.isNaga) Color(0xFFDC2626) else Color(0xFFFEE2E2),
+                        border = BorderStroke(1.5.dp, if (item.isNaga) Color(0xFF991B1B) else Color(0xFFEF4444)),
+                        modifier = Modifier
+                            .weight(0.28f)
+                            .height(54.dp)
+                            .clickable { onNagaClicked() }
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(15.dp))
-                            Text(if (item.isNaga) "NAGA ✓" else "नागा", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "नागा",
+                                tint = if (item.isNaga) Color.White else Color(0xFFDC2626),
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (item.isNaga) "नागा ✓" else "नागा",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (item.isNaga) Color.White else Color(0xFFB91C1C),
+                                maxLines = 1
+                            )
                         }
                     }
 
-                    // Skip to Later Button [⏰ बाद में]
-                    OutlinedButton(
-                        onClick = onSkipClicked,
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = colorScheme.onSurfaceVariant,
-                            containerColor = colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ),
+                    // 2. Skip to Later Button [⏰ बाद में]
+                    Surface(
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(0.28f).height(54.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)
+                        color = colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .weight(0.28f)
+                            .height(54.dp)
+                            .clickable { onSkipClicked() }
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(15.dp), tint = colorScheme.onSurfaceVariant)
-                            Text("बाद में", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(horizontal = 2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Schedule,
+                                contentDescription = "बाद में",
+                                tint = colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "बाद में",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
                         }
                     }
 

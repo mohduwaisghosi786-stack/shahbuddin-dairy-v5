@@ -596,6 +596,33 @@ fun DailyTaskScreen(
                         Text("मुंशी AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
                     }
                 }
+                Spacer(modifier = Modifier.width(5.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF25D366),
+                    modifier = Modifier.clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        WhatsAppReportManager.sendNightlyClosingSummary(
+                            context = context,
+                            dateStr = CalculationEngine.formatDateDisplay(uiState.selectedDate),
+                            totalMilkLiters = uiState.totalMilk,
+                            totalCashCollected = uiState.totalCashCollected,
+                            completedDeliveries = uiState.completedCount,
+                            totalCustomers = uiState.customerCards.size,
+                            nagaCount = uiState.nagaCount,
+                            alternateOffCount = uiState.customerCards.count { it.isAlternateOff }
+                        )
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Share, contentDescription = "मालिक रिपोर्ट", tint = Color.White, modifier = Modifier.size(11.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("🌙 बंद", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
             }
         }
 

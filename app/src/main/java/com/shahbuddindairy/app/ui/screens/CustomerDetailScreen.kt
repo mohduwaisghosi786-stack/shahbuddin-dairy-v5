@@ -907,7 +907,8 @@ fun CustomerDetailScreen(
             CustomerMonthlyStatementDialog(
                 customer = uiState.customer!!,
                 onDismiss = { showStatementDialog = false },
-                onExportPdf = { month -> viewModel.exportMonthlyStatementPdf(context, month) }
+                onExportPdf = { month -> viewModel.exportMonthlyStatementPdf(context, month) },
+                onWhatsAppStatement = { month -> viewModel.sendWhatsAppMonthlyStatement(context, month) }
             )
         }
 
@@ -1808,7 +1809,8 @@ fun CustomerReceiptOptionsDialog(
 fun CustomerMonthlyStatementDialog(
     customer: CustomerEntity,
     onDismiss: () -> Unit,
-    onExportPdf: (String) -> Unit
+    onExportPdf: (String) -> Unit,
+    onWhatsAppStatement: (String) -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val currentMonth = CalculationEngine.todayStr().take(7)
@@ -1848,10 +1850,25 @@ fun CustomerMonthlyStatementDialog(
                 Spacer(modifier = Modifier.height(4.dp))
                 Button(
                     onClick = {
+                        onWhatsAppStatement(selectedMonth)
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("WHATSAPP STATEMENT", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = {
                         onExportPdf(selectedMonth)
                         onDismiss()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.primary),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth().height(42.dp)
                 ) {

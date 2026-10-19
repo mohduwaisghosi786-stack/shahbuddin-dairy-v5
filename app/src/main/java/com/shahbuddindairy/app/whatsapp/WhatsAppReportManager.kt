@@ -5,22 +5,49 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import com.shahbuddindairy.app.ai.VoiceFeedbackManager
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
- * 100% WhatsApp Automation Manager for Shahbuddin Dairy.
+ * 100% WhatsApp Automation Manager for Shahbuddin Dairy V8.5.
  * Strictly replaces all email communication with direct WhatsApp messaging:
- * 1. 1-Tap Instant Delivery Receipts.
- * 2. Nightly Business Closing Summary for Dairy Owner.
- * 3. Gentle Due Recovery Reminders with UPI payment details.
+ * 1. 1-Tap Instant Delivery Receipts to customers.
+ * 2. Monthly Khata Statement directly to customer's WhatsApp.
+ * 3. Nightly Business Closing Summary for Dairy Owner (Default: 9258263340).
+ * 4. Gentle Due Recovery Reminders with UPI payment details.
  */
 object WhatsAppReportManager {
+
+    const val DEFAULT_OWNER_PHONE = "9258263340"
+    private const val PREFS_NAME = "sd_owner_report_prefs"
+    private const val KEY_OWNER_PHONE = "owner_report_phone"
+    private const val KEY_AUTO_REPORT = "owner_auto_report"
+
+    fun getOwnerReportPhone(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_OWNER_PHONE, DEFAULT_OWNER_PHONE)?.ifBlank { DEFAULT_OWNER_PHONE } ?: DEFAULT_OWNER_PHONE
+    }
+
+    fun setOwnerReportPhone(context: Context, phone: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_OWNER_PHONE, phone.trim()).apply()
+    }
+
+    fun isAutoReportEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_AUTO_REPORT, false)
+    }
+
+    fun setAutoReportEnabled(context: Context, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_AUTO_REPORT, enabled).apply()
+    }
 
     /**
      * Formats an Indian phone number for WhatsApp direct link.
      */
-    private fun sanitizePhoneNumber(rawPhone: String?): String? {
+    fun sanitizePhoneNumber(rawPhone: String?): String? {
         if (rawPhone.isNullOrBlank()) return null
         val digitsOnly = rawPhone.replace(Regex("[^0-9]"), "")
         return when {
@@ -34,7 +61,8 @@ object WhatsAppReportManager {
     /**
      * Safely opens WhatsApp with prefilled text and optional recipient phone.
      */
-    private fun launchWhatsApp(context: Context, phone: String?, messageText: String) {
+    fun launchWhatsApp(context: Context, phone: String?, messageText: String) {
+        VoiceFeedbackManager.getInstance(context).playShareSound()
         val cleanPhone = sanitizePhoneNumber(phone)
         val encodedMessage = try {
             URLEncoder.encode(messageText, StandardCharsets.UTF_8.name())
@@ -54,7 +82,7 @@ object WhatsAppReportManager {
             }
             context.startActivity(intent)
         } catch (e: ActivityNotFoundException) {
-            // If direct WhatsApp URI handler isn't found, fallback to standard share intent
+            // Fallback to standard WhatsApp share intent
             try {
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
@@ -120,11 +148,53 @@ object WhatsAppReportManager {
     }
 
     /**
+     * Monthly Statement / Customer Khata summary sent to customer's WhatsApp.
+     */
+    fun sendCustomerKhataStatement(
+        context: Context,
+        customerPhone: String?,
+        customerName: String,
+        periodStr: String,
+        openingBalance: Double,
+        totalMilkLiters: Double,
+        totalMilkBill: Double,
+        totalPaid: Double,
+        closingBalance: Double,
+        dairyName: String = "शाहबुद्दीन डेयरी"
+    ) {
+        val message = buildString {
+            append("📋 *").append(dairyName).append(" — खाता विवरण*\n")
+            append("━━━━━━━━━━━━━━━━━━━━\n")
+            append("👤 ग्राहक: *").append(customerName).append("*\n")
+            append("📅 अवधि: ").append(periodStr).append("\n")
+            if (openingBalance != 0.0) {
+                append("🔄 पुराना बकाया: ₹%.0f\n".format(openingBalance))
+            }
+            append("🥛 कुल दूध: *%.1f Liters*\n".format(totalMilkLiters))
+            append("💵 कुल दूध बिल: *₹%.0f*\n".format(totalMilkBill))
+            append("💰 कुल जमा (भुगतान): *₹%.0f*\n".format(totalPaid))
+            append("━━━━━━━━━━━━━━━━━━━━\n")
+            if (closingBalance > 0) {
+                append("🚨 *अंतिम देय बकाया: ₹%.0f*\n".format(closingBalance))
+                append("कृपया बकाया राशि का भुगतान करें।\n")
+            } else if (closingBalance < 0) {
+                append("🎁 *अग्रिम जमा (Advance): ₹%.0f*\n".format(-closingBalance))
+            } else {
+                append("✅ *खाता पूर्णतः चुकता (Nil Balance)*\n")
+            }
+            append("━━━━━━━━━━━━━━━━━━━━\n")
+            append("किसी भी प्रश्न के लिए संपर्क करें। धन्यवाद! 🙏")
+        }
+
+        launchWhatsApp(context, customerPhone, message)
+    }
+
+    /**
      * Nightly Business Closing Summary sent to Owner's WhatsApp (Raat Ka Hisab).
      */
     fun sendNightlyClosingSummary(
         context: Context,
-        ownerPhone: String?,
+        ownerPhone: String? = null,
         dateStr: String,
         totalMilkLiters: Double,
         totalCashCollected: Double,
@@ -134,6 +204,7 @@ object WhatsAppReportManager {
         alternateOffCount: Int,
         dairyName: String = "शाहबुद्दीन डेयरी"
     ) {
+        val targetOwnerPhone = ownerPhone?.ifBlank { getOwnerReportPhone(context) } ?: getOwnerReportPhone(context)
         val message = buildString {
             append("🌙 *").append(dairyName).append(" — रात का बंद हिसाब*\n")
             append("━━━━━━━━━━━━━━━━━━━━\n")
@@ -152,11 +223,11 @@ object WhatsAppReportManager {
                 append("⏳ शेष बाकी: *").append(pending).append("*\n")
             }
             append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("🔒 डेटाबेस पूर्णतः सुरक्षित (SQLite v11 Safe)\n")
+            append("🔒 डेटाबेस पूर्णतः सुरक्षित (SQLite v8.5 Safe)\n")
             append("✨ शुभ रात्रि! 🥛")
         }
 
-        launchWhatsApp(context, ownerPhone, message)
+        launchWhatsApp(context, targetOwnerPhone, message)
     }
 
     /**

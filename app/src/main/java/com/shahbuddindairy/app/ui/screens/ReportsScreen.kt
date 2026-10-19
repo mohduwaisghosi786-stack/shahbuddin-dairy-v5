@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -678,20 +679,8 @@ fun ReportsScreen(
 
                     Button(
                         onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, reportText)
-                                setPackage("com.whatsapp")
-                            }
-                            try {
-                                context.startActivity(shareIntent)
-                            } catch (e: Exception) {
-                                val chooser = Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, reportText)
-                                }, "Share Daily Sales Report")
-                                context.startActivity(chooser)
-                            }
+                            val ownerPhone = WhatsAppReportManager.getOwnerReportPhone(context)
+                            WhatsAppReportManager.launchWhatsApp(context, ownerPhone, reportText)
                             showWhatsAppDialog = false
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
@@ -699,7 +688,7 @@ fun ReportsScreen(
                     ) {
                         Icon(Icons.Default.Send, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Share", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Send to Owner", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             },

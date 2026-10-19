@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -846,31 +847,14 @@ fun shareWhatsAppPaymentReminder(
     upiId: String,
     payeeName: String
 ) {
-    val dueStr = if (balance > 0) "₹${CalculationEngine.formatMoney(balance)}" else "₹0 (खाता चुकता)"
-    val message = "नमस्ते ${customer.name} जी,\n" +
-            "शाहबुद्दीन डेयरी की तरफ से आपके दूध का हिसाब:\n" +
-            "कुल बकाया: $dueStr\n" +
-            (if (upiId.isNotBlank()) "UPI ID: $upiId\n" else "") +
-            "कृपया समय पर भुगतान करें। धन्यवाद।\n— $payeeName"
-
-    val intent = Intent(Intent.ACTION_SEND).apply {
-        type = "text/plain"
-        putExtra(Intent.EXTRA_TEXT, message)
-        if (customer.phone.isNotBlank()) {
-            val phoneNum = if (customer.phone.startsWith("+91")) customer.phone else "+91${customer.phone}"
-            putExtra("jid", "${phoneNum.removePrefix("+")}@s.whatsapp.net")
-        }
-    }
-    intent.setPackage("com.whatsapp")
-    try {
-        context.startActivity(intent)
-    } catch (_: Exception) {
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, message)
-        }
-        context.startActivity(Intent.createChooser(shareIntent, "Share Payment Reminder"))
-    }
+    WhatsAppReportManager.sendGentleDueReminder(
+        context = context,
+        customerPhone = customer.phone,
+        customerName = customer.name,
+        dueAmount = balance,
+        upiId = upiId,
+        payeeName = payeeName.ifBlank { "शाहबुद्दीन डेयरी" }
+    )
 }
 
 @Composable

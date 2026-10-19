@@ -109,6 +109,9 @@ import com.shahbuddindairy.app.ui.theme.LocalThemeController
 import com.shahbuddindairy.app.ui.theme.StatusAmber
 import com.shahbuddindairy.app.ui.theme.StatusRed
 import com.shahbuddindairy.app.ui.theme.ThemeMode
+import com.shahbuddindairy.app.ai.VoiceFeedbackManager
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
+import android.widget.Toast
 
 @Composable
 fun TotalHisabScreen(viewModel: BackupViewModel) {
@@ -121,6 +124,20 @@ fun BackupScreen(viewModel: BackupViewModel) {
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val themeController = LocalThemeController.current
+
+    // Sound & Voice TTS Manager States
+    val voiceManager = remember { VoiceFeedbackManager.getInstance(context) }
+    var masterSound by remember { mutableStateOf(voiceManager.isMasterSoundEnabled) }
+    var voiceTts by remember { mutableStateOf(voiceManager.isVoiceEnabled) }
+    var deliverySound by remember { mutableStateOf(voiceManager.isDeliverySoundEnabled) }
+    var nagaSound by remember { mutableStateOf(voiceManager.isNagaSoundEnabled) }
+    var saveSound by remember { mutableStateOf(voiceManager.isSaveSoundEnabled) }
+    var shareSound by remember { mutableStateOf(voiceManager.isShareSoundEnabled) }
+    var hapticFeedback by remember { mutableStateOf(voiceManager.isHapticEnabled) }
+
+    // Owner Daily WhatsApp Report Settings States (Phase 10: default 9258263340)
+    var ownerReportPhoneInput by remember { mutableStateOf(WhatsAppReportManager.getOwnerReportPhone(context)) }
+    var ownerAutoReport by remember { mutableStateOf(WhatsAppReportManager.isAutoReportEnabled(context)) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -888,7 +905,281 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 }
             }
 
-            // 8. AI MUNSHI & PRIVATE SERVER SETTINGS (DEBIAN 13 / TAILSCALE)
+            // 8. OWNER'S DAILY REPORT WHATSAPP SETTINGS CARD (Phase 10)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF25D366), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "मालिक दैनिक रिपोर्ट (Owner Report)",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFFDCFCE7))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("WhatsApp", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        }
+                    }
+
+                    Text(
+                        text = "दैनिक बंद रिपोर्ट (रात का हिसाब) प्राप्त करने के लिए मालिक का WhatsApp नंबर सेट करें। डिफ़ॉल्ट: ${WhatsAppReportManager.DEFAULT_OWNER_PHONE}",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    OutlinedTextField(
+                        value = ownerReportPhoneInput,
+                        onValueChange = { ownerReportPhoneInput = it },
+                        label = { Text("Owner WhatsApp Number (मालिक का नंबर)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF15803D),
+                            unfocusedBorderColor = colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("ऑटो रिपोर्ट शेयरिंग", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("डिलीवरी समाप्त होने पर WhatsApp रिपोर्ट खोलें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = ownerAutoReport,
+                            onCheckedChange = {
+                                ownerAutoReport = it
+                                WhatsAppReportManager.setAutoReportEnabled(context, it)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF15803D))
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                WhatsAppReportManager.setOwnerReportPhone(context, ownerReportPhoneInput)
+                                Toast.makeText(context, "मालिक का रिपोर्ट नंबर सुरक्षित हुआ: $ownerReportPhoneInput ✓", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("SAVE NUMBER", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                WhatsAppReportManager.sendNightlyClosingSummary(
+                                    context = context,
+                                    ownerPhone = ownerReportPhoneInput,
+                                    dateStr = CalculationEngine.formatDateDisplay(CalculationEngine.todayStr()),
+                                    totalMilkLiters = 0.0,
+                                    totalCashCollected = 0.0,
+                                    completedDeliveries = uiState.totalDeliveries,
+                                    totalCustomers = uiState.totalCustomers,
+                                    nagaCount = 0,
+                                    alternateOffCount = 0
+                                )
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF25D366), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("SEND TEST REPORT", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // 9. SOUND, HAPTICS & VOICE (TTS) SETTINGS CARD (Phase 12)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Notifications, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "साउंड, आवाज और वाइब्रेशन (Audio & Haptics)",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "डिलीवरी, नागा और शेयरिंग के लिए ऑडियो संकेत व देशी हिंदी टेक्स्ट-टू-स्पीच। सिस्टम साइलेंट मोड का स्वतः सम्मान करता है।",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // Master Sound Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("मुख्य साउंड (Master Audio)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("सभी ऑडियो बीप व आवाजों को चालू या बंद करें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = masterSound,
+                            onCheckedChange = {
+                                masterSound = it
+                                voiceManager.isMasterSoundEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
+                        )
+                    }
+
+                    // Native Voice TTS Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("हिंदी आवाज (Voice TTS)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("डिलीवरी पर ग्राहक का नाम, लीटर व बिल बोलकर सुनाएगा", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = voiceTts,
+                            enabled = masterSound,
+                            onCheckedChange = {
+                                voiceTts = it
+                                voiceManager.isVoiceEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
+                        )
+                    }
+
+                    // Delivery Sound Chime
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("डिलीवरी सफलता टोन (Delivery Beep)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text("दूध देने पर तुरंत कन्फर्मेशन टोन", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = deliverySound,
+                            enabled = masterSound,
+                            onCheckedChange = {
+                                deliverySound = it
+                                voiceManager.isDeliverySoundEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
+                        )
+                    }
+
+                    // Naga Sound Chime
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("नागा टोन (Naga Chime)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text("नागा दर्ज होने पर अलर्ट टोन", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = nagaSound,
+                            enabled = masterSound,
+                            onCheckedChange = {
+                                nagaSound = it
+                                voiceManager.isNagaSoundEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
+                        )
+                    }
+
+                    // Touch Haptics Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("हैप्टिक वाइब्रेशन (Touch Feedback)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text("बटन दबाने पर सूक्ष्म कंपन (Helio G88 Optimized)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = hapticFeedback,
+                            onCheckedChange = {
+                                hapticFeedback = it
+                                voiceManager.isHapticEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            voiceManager.playDeliverySound()
+                            voiceManager.speak("शाहबुद्दीन डेयरी, आवाज और साउंड परीक्षण सफल")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primaryContainer),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("TEST SOUND & VOICE (साउंड टेस्ट करें)", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+
+            // 10. AI MUNSHI & PRIVATE SERVER SETTINGS (DEBIAN 13 / TAILSCALE)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),

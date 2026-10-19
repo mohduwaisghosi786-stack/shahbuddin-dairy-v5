@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
 
 import com.shahbuddindairy.app.data.model.CustomerNoteEntity
 import com.shahbuddindairy.app.data.model.RouteEntity
@@ -493,6 +494,42 @@ class CustomerDetailViewModel(
             val payments = repository.getPaymentsForCustomerDirect(customerId)
             val res = PdfReportGenerator.generateMonthlyStatementPdf(context, cust, monthStr, deliveries, payments)
             _pdfResult.value = res
+        }
+    }
+
+    fun sendWhatsAppMonthlyStatement(context: Context, monthStr: String = CalculationEngine.todayStr().take(7)) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val cust = repository.getCustomerByIdDirect(customerId) ?: return@launch
+            val deliveries = repository.getDeliveriesForCustomerDirect(customerId)
+            val payments = repository.getPaymentsForCustomerDirect(customerId)
+
+            val monthDeliveries = deliveries.filter { it.date.startsWith(monthStr) && !it.isVoid }
+            val monthPayments = payments.filter { it.date.startsWith(monthStr) && !it.isVoid }
+
+            val totalLiters = monthDeliveries.sumOf { it.liters }
+            val totalBill = monthDeliveries.sumOf { it.totalAmount }
+            val totalPaid = monthPayments.sumOf { it.amount } + monthDeliveries.sumOf { it.paidCash + it.paidOnline }
+
+            val preDeliveries = deliveries.filter { it.date < "$monthStr-01" && !it.isVoid && it.status == "delivered" }
+            val preDeliveriesPaid = deliveries.filter { it.date < "$monthStr-01" && !it.isVoid }.sumOf { it.totalPaid }
+            val prePayments = payments.filter { it.date < "$monthStr-01" && !it.isVoid }.sumOf { it.amount }
+            val openingBalance = CalculationEngine.round2(preDeliveries.sumOf { it.totalAmount } - (preDeliveriesPaid + prePayments))
+            val closingBalance = CalculationEngine.round2(openingBalance + totalBill - totalPaid)
+
+            withContext(Dispatchers.Main) {
+                WhatsAppReportManager.sendCustomerKhataStatement(
+                    context = context,
+                    customerPhone = cust.phone,
+                    customerName = cust.name,
+                    periodStr = monthStr,
+                    openingBalance = openingBalance,
+                    totalMilkLiters = totalLiters,
+                    totalMilkBill = totalBill,
+                    totalPaid = totalPaid,
+                    closingBalance = closingBalance,
+                    dairyName = uiState.value.payeeName.ifBlank { "शाहबुद्दीन डेयरी" }
+                )
+            }
         }
     }
 

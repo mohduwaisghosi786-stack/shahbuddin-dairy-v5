@@ -25,6 +25,24 @@ interface CustomerNoteDao {
     @Query("SELECT * FROM customer_notes")
     suspend fun getAllNotesDirect(): List<CustomerNoteEntity>
 
+    @Query("SELECT * FROM customer_notes ORDER BY isPinned DESC, createdAt DESC")
+    fun getAllNotes(): Flow<List<CustomerNoteEntity>>
+
+    @Query("SELECT * FROM customer_notes WHERE customerId = 0 ORDER BY isPinned DESC, createdAt DESC")
+    fun getGeneralNotes(): Flow<List<CustomerNoteEntity>>
+
+    @Query("SELECT * FROM customer_notes WHERE customerId > 0 ORDER BY isPinned DESC, createdAt DESC")
+    fun getCustomerNotes(): Flow<List<CustomerNoteEntity>>
+
+    @Query("SELECT * FROM customer_notes WHERE id = :id")
+    fun getNoteById(id: String): Flow<CustomerNoteEntity?>
+
+    @Query("SELECT * FROM customer_notes WHERE id = :id")
+    suspend fun getNoteByIdDirect(id: String): CustomerNoteEntity?
+
+    @Query("SELECT * FROM customer_notes WHERE content LIKE '%' || :query || '%' OR title LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%' ORDER BY isPinned DESC, createdAt DESC")
+    fun searchNotes(query: String): Flow<List<CustomerNoteEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNote(note: CustomerNoteEntity)
 

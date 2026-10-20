@@ -10,7 +10,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
- * 100% WhatsApp Automation Manager for Shahbuddin Dairy V8.5.
+ * 100% WhatsApp Automation Manager for Shahbuddin Dairy V9.0.
  * Strictly replaces all email communication with direct WhatsApp messaging:
  * 1. 1-Tap Instant Delivery Receipts to customers.
  * 2. Monthly Khata Statement directly to customer's WhatsApp.
@@ -19,7 +19,7 @@ import java.nio.charset.StandardCharsets
  */
 object WhatsAppReportManager {
 
-    const val DEFAULT_OWNER_PHONE = "9258263340"
+    const val DEFAULT_OWNER_PHONE = "9258262340"
     private const val PREFS_NAME = "sd_owner_report_prefs"
     private const val KEY_OWNER_PHONE = "owner_report_phone"
     private const val KEY_AUTO_REPORT = "owner_auto_report"
@@ -190,6 +190,34 @@ object WhatsAppReportManager {
     }
 
     /**
+     * Shares a PDF file directly to WhatsApp (optionally targeting owner phone or general share).
+     */
+    fun sharePdfViaWhatsApp(
+        context: Context,
+        pdfUri: Uri,
+        phone: String? = null,
+        caption: String = "🥛 Shahbuddin Dairy — Daily Statement PDF"
+    ) {
+        VoiceFeedbackManager.getInstance(context).playShareSound()
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, pdfUri)
+                putExtra(Intent.EXTRA_TEXT, caption)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val cleanPhone = sanitizePhoneNumber(phone)
+                if (cleanPhone != null) {
+                    setPackage("com.whatsapp")
+                }
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share Daily Statement PDF"))
+        } catch (e: Exception) {
+            Toast.makeText(context, "PDF शेयर विफल: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
      * Nightly Business Closing Summary sent to Owner's WhatsApp (Raat Ka Hisab).
      */
     fun sendNightlyClosingSummary(
@@ -202,29 +230,50 @@ object WhatsAppReportManager {
         totalCustomers: Int,
         nagaCount: Int,
         alternateOffCount: Int,
+        totalOnlineCollected: Double = 0.0,
+        totalBilled: Double = 0.0,
+        totalMarketDue: Double = 0.0,
+        totalAdvance: Double = 0.0,
         dairyName: String = "शाहबुद्दीन डेयरी"
     ) {
         val targetOwnerPhone = ownerPhone?.ifBlank { getOwnerReportPhone(context) } ?: getOwnerReportPhone(context)
+        val totalCollected = totalCashCollected + totalOnlineCollected
         val message = buildString {
-            append("🌙 *").append(dairyName).append(" — रात का बंद हिसाब*\n")
-            append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("📅 तारीख: ").append(dateStr).append("\n")
-            append("🥛 कुल दूध वितरण: *%.1f Liters*\n".format(totalMilkLiters))
-            append("💵 कुल नकद संग्रह: *₹%,d*\n".format(totalCashCollected.toLong()))
-            append("👥 पूर्ण डिलीवरी: *").append(completedDeliveries).append(" / ").append(totalCustomers).append(" ग्राहक*\n")
+            appendLine("🌙 *$dairyName — रात का बंद हिसाब*")
+            appendLine("📍 96, Gulab Nagar, Bareilly, Uttar Pradesh, India")
+            appendLine("━━━━━━━━━━━━━━━━━━━━")
+            appendLine("📅 तारीख: $dateStr")
+            appendLine("🥛 कुल दूध वितरण: *%.2f Liters*".format(totalMilkLiters))
+            if (totalBilled > 0) {
+                appendLine("💵 कुल बिक्री (Bill): *₹%,d*".format(totalBilled.toLong()))
+            }
+            appendLine("💰 कुल नकद संग्रह: *₹%,d*".format(totalCashCollected.toLong()))
+            if (totalOnlineCollected > 0) {
+                appendLine("📱 ऑनलाइन संग्रह: *₹%,d*".format(totalOnlineCollected.toLong()))
+            }
+            appendLine("⚡ कुल वसूली: *₹%,d*".format(totalCollected.toLong()))
+            appendLine("━━━━━━━━━━━━━━━━━━━━")
+            appendLine("👥 पूर्ण डिलीवरी: *$completedDeliveries / $totalCustomers ग्राहक*")
             if (nagaCount > 0) {
-                append("❌ कुल नागा (0L): *").append(nagaCount).append("*\n")
+                appendLine("❌ कुल नागा (0L): *$nagaCount*")
             }
             if (alternateOffCount > 0) {
-                append("⏸️ आज बंद (Alternate Off): *").append(alternateOffCount).append("*\n")
+                appendLine("⏸️ अल्टरनेट ऑफ: *$alternateOffCount* (आज बंद)")
             }
             val pending = (totalCustomers - completedDeliveries - nagaCount - alternateOffCount).coerceAtLeast(0)
             if (pending > 0) {
-                append("⏳ शेष बाकी: *").append(pending).append("*\n")
+                appendLine("⏳ शेष बाकी: *$pending*")
             }
-            append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("🔒 डेटाबेस पूर्णतः सुरक्षित (SQLite v8.5 Safe)\n")
-            append("✨ शुभ रात्रि! 🥛")
+            appendLine("━━━━━━━━━━━━━━━━━━━━")
+            if (totalMarketDue > 0) {
+                appendLine("⚠️ कुल बाजार उधारी: *₹%,.2f*".format(totalMarketDue))
+            }
+            if (totalAdvance > 0) {
+                appendLine("🟢 कुल अग्रिम जमा: *₹%,.2f*".format(totalAdvance))
+            }
+            appendLine("━━━━━━━━━━━━━━━━━━━━")
+            appendLine("🔒 डेटाबेस पूर्णतः सुरक्षित (SQLite v9.0 Safe)")
+            appendLine("✨ शुभ रात्रि! 🥛")
         }
 
         launchWhatsApp(context, targetOwnerPhone, message)

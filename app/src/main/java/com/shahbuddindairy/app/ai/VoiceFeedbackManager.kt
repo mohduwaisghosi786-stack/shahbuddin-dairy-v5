@@ -2,9 +2,9 @@ package com.shahbuddindairy.app.ai
 
 import android.content.Context
 import android.media.AudioManager
-import android.media.ToneGenerator
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import com.shahbuddindairy.app.audio.SoundEffectManager
 import java.util.Locale
 
 /**
@@ -96,38 +96,33 @@ class VoiceFeedbackManager(private val context: Context) : TextToSpeech.OnInitLi
         return mode != AudioManager.RINGER_MODE_NORMAL
     }
 
-    private fun playTone(toneType: Int, durationMs: Int = 120) {
-        if (!isMasterSoundEnabled || isSystemSilent()) return
-        try {
-            val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
-            toneGen.startTone(toneType, durationMs)
-            toneGen.release()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error playing tone: ${e.message}")
-        }
-    }
+    private val soundEffectManager = SoundEffectManager.getInstance(context)
 
     fun playDeliverySound() {
         if (isDeliverySoundEnabled) {
-            playTone(ToneGenerator.TONE_PROP_ACK, 120)
+            soundEffectManager.play(com.shahbuddindairy.app.audio.SoundEvent.DELIVERED)
+            soundEffectManager.vibrate(50)
         }
     }
 
     fun playNagaSound() {
         if (isNagaSoundEnabled) {
-            playTone(ToneGenerator.TONE_PROP_NACK, 140)
+            soundEffectManager.play(com.shahbuddindairy.app.audio.SoundEvent.NAGA)
+            soundEffectManager.vibrate(80)
         }
     }
 
     fun playSaveSound() {
         if (isSaveSoundEnabled) {
-            playTone(ToneGenerator.TONE_PROP_BEEP, 100)
+            soundEffectManager.play(com.shahbuddindairy.app.audio.SoundEvent.SAVE_COMPLETED)
+            soundEffectManager.vibrate(40)
         }
     }
 
     fun playShareSound() {
         if (isShareSoundEnabled) {
-            playTone(ToneGenerator.TONE_PROP_PROMPT, 100)
+            soundEffectManager.play(com.shahbuddindairy.app.audio.SoundEvent.ATTACHMENT_ADDED)
+            soundEffectManager.vibrate(30)
         }
     }
 

@@ -133,6 +133,18 @@ class DairyRepository(
 
     fun getAllPbsSettingsFlow(): Flow<List<AppSettingEntity>> = settingDao.getAllPbsSettingsFlow()
 
+    suspend fun getAllPbsMap(): Map<Long, Double> {
+        return try {
+            settingDao.getAllPbsSettingsDirect().mapNotNull { s ->
+                val id = s.key.removePrefix("pbs_pending_").toLongOrNull() ?: return@mapNotNull null
+                val v = s.value.toDoubleOrNull() ?: return@mapNotNull null
+                id to v
+            }.toMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
     suspend fun updateCustomerRouteOrders(orderList: List<Pair<Long, Int>>) {
         transactionMutex.withLock {
             for ((cId, order) in orderList) {
@@ -156,6 +168,25 @@ class DairyRepository(
 
     suspend fun getAllNotesDirect(): List<CustomerNoteEntity> =
         customerNoteDao.getAllNotesDirect()
+
+    // Notes Module (General & Customer Linked)
+    fun getAllNotes(): Flow<List<CustomerNoteEntity>> =
+        customerNoteDao.getAllNotes()
+
+    fun getGeneralNotes(): Flow<List<CustomerNoteEntity>> =
+        customerNoteDao.getGeneralNotes()
+
+    fun getCustomerNotes(): Flow<List<CustomerNoteEntity>> =
+        customerNoteDao.getCustomerNotes()
+
+    fun searchNotes(query: String): Flow<List<CustomerNoteEntity>> =
+        customerNoteDao.searchNotes(query)
+
+    fun getNoteById(id: String): Flow<CustomerNoteEntity?> =
+        customerNoteDao.getNoteById(id)
+
+    suspend fun getNoteByIdDirect(id: String): CustomerNoteEntity? =
+        customerNoteDao.getNoteByIdDirect(id)
 
     suspend fun saveNote(note: CustomerNoteEntity) {
         transactionMutex.withLock {

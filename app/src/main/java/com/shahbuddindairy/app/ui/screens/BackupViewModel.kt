@@ -18,6 +18,30 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.InputStreamReader
 
+import com.shahbuddindairy.app.data.model.CustomerEntity
+import com.shahbuddindairy.app.domain.CalculationEngine
+
+data class CustomerLedgerSummary(
+    val customer: CustomerEntity,
+    val totalLiters: Double,
+    val totalBilled: Double,
+    val totalPaid: Double,
+    val pbsPending: Double,
+    val netBalance: Double
+)
+
+data class TotalHisabSummaryState(
+    val totalBilled: Double = 0.0,
+    val totalCashCollected: Double = 0.0,
+    val totalOnlineCollected: Double = 0.0,
+    val totalPaid: Double = 0.0,
+    val totalMarketDue: Double = 0.0,
+    val totalAdvance: Double = 0.0,
+    val totalLiters: Double = 0.0,
+    val customerLedgers: List<CustomerLedgerSummary> = emptyList(),
+    val isLoading: Boolean = false
+)
+
 data class BackupScreenUiState(
     val lastBackupTime: String = "Never",
     val backupCount: Int = 0,
@@ -50,8 +74,79 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
     private val _uiState = MutableStateFlow(BackupScreenUiState())
     val uiState: StateFlow<BackupScreenUiState> = _uiState.asStateFlow()
 
+    private val _ledgerState = MutableStateFlow(TotalHisabSummaryState(isLoading = true))
+    val ledgerState: StateFlow<TotalHisabSummaryState> = _ledgerState.asStateFlow()
+
     init {
         refreshStatus()
+        loadLedgerSummary()
+    }
+
+    fun loadLedgerSummary() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val customers = repository.getAllActiveCustomersDirect()
+            val deliveries = repository.getAllDeliveriesDirect()
+            val payments = repository.getAllPaymentsDirect()
+
+            var totalBilled = 0.0
+            var totalCash = 0.0
+            var totalOnline = 0.0
+            var totalLiters = 0.0
+            var totalMarketDue = 0.0
+            var totalAdvance = 0.0
+
+            val delivByCust = deliveries.filter { !it.isVoid }.groupBy { it.customerId }
+            val payByCust = payments.filter { !it.isVoid }.groupBy { it.customerId }
+
+            val list = mutableListOf<CustomerLedgerSummary>()
+
+            for (c in customers) {
+                val cDelivs = delivByCust[c.id] ?: emptyList()
+                val cPays = payByCust[c.id] ?: emptyList()
+
+                val cLiters = cDelivs.filter { it.status == "delivered" }.sumOf { it.liters }
+                val cBill = cDelivs.filter { it.status == "delivered" }.sumOf { it.totalAmount }
+                val cCash = cDelivs.sumOf { it.paidCash } + cPays.filter { it.paymentMode == "Cash" }.sumOf { it.amount }
+                val cOnline = cDelivs.sumOf { it.paidOnline } + cPays.filter { it.paymentMode != "Cash" }.sumOf { it.amount }
+                val cPaid = cCash + cOnline
+                val cPbs = repository.getPbsPending(c.id)
+
+                val net = CalculationEngine.round2((cBill + cPbs) - cPaid)
+
+                totalLiters += cLiters
+                totalBilled += cBill
+                totalCash += cCash
+                totalOnline += cOnline
+
+                if (net > 0) totalMarketDue += net
+                else if (net < 0) totalAdvance += (-net)
+
+                list.add(
+                    CustomerLedgerSummary(
+                        customer = c,
+                        totalLiters = cLiters,
+                        totalBilled = cBill,
+                        totalPaid = cPaid,
+                        pbsPending = cPbs,
+                        netBalance = net
+                    )
+                )
+            }
+
+            list.sortByDescending { it.netBalance }
+
+            _ledgerState.value = TotalHisabSummaryState(
+                totalBilled = CalculationEngine.round2(totalBilled),
+                totalCashCollected = CalculationEngine.round2(totalCash),
+                totalOnlineCollected = CalculationEngine.round2(totalOnline),
+                totalPaid = CalculationEngine.round2(totalCash + totalOnline),
+                totalMarketDue = CalculationEngine.round2(totalMarketDue),
+                totalAdvance = CalculationEngine.round2(totalAdvance),
+                totalLiters = CalculationEngine.round2(totalLiters),
+                customerLedgers = list,
+                isLoading = false
+            )
+        }
     }
 
     fun refreshStatus() {
@@ -157,7 +252,7 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
                         backupFile
                     )
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/json"
+                        type = if (backupFile.extension == "zip") "application/zip" else "application/json"
                         putExtra(Intent.EXTRA_STREAM, uri)
                         putExtra(Intent.EXTRA_SUBJECT, "Shahbuddin Dairy Backup - ${backupFile.name}")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -176,25 +271,8 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
 
     fun onFileSelectedForRestore(context: Context, uri: Uri) {
         viewModelScope.launch {
-            val rawJson = withContext(Dispatchers.IO) {
-                try {
-                    context.contentResolver.openInputStream(uri)?.use { stream ->
-                        InputStreamReader(stream, Charsets.UTF_8).readText()
-                    } ?: ""
-                } catch (e: Exception) {
-                    ""
-                }
-            }
-
-            if (rawJson.isBlank()) {
-                _uiState.value = _uiState.value.copy(
-                    pendingRestoreValidation = BackupManager.ValidationResult(false, "Could not read selected file")
-                )
-                return@launch
-            }
-
             val validation = withContext(Dispatchers.IO) {
-                BackupManager.validateBackupJson(rawJson)
+                BackupManager.validateBackupFromUri(context, uri)
             }
             _uiState.value = _uiState.value.copy(pendingRestoreValidation = validation)
         }

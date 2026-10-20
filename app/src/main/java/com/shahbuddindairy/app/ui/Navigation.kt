@@ -7,6 +7,7 @@ sealed class Screen(val route: String, val title: String) {
     object Reports : Screen("reports", "Daily Report")
     object Customers : Screen("customers", "Customer Khata")
     object TotalHisab : Screen("total_hisab", "Total Hisab")
+    object Notes : Screen("notes", "Notes")
 
     // Aliases for backwards compatibility
     val Backup get() = TotalHisab

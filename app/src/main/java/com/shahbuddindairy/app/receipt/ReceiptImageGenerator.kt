@@ -75,7 +75,7 @@ object ReceiptImageGenerator {
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("वितरण व भुगतान रसीद • V8.0", (width / 2).toFloat(), 115f, subTitlePaint)
+        canvas.drawText("वितरण व भुगतान रसीद • V8.9", (width / 2).toFloat(), 115f, subTitlePaint)
 
         val phonePaint = Paint().apply {
             color = Color.rgb(209, 196, 233)

@@ -25,6 +25,9 @@ import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 object BackupManager {
     private const val TAG = "BackupManager"
@@ -37,6 +40,7 @@ object BackupManager {
         val onlinePaymentsCount: Int,
         val routesCount: Int = 0,
         val notesCount: Int = 0,
+        val mediaCount: Int = 0,
         val totalLiters: Double,
         val totalBill: Double,
         val totalPaid: Double,
@@ -52,7 +56,10 @@ object BackupManager {
         val payments: List<PaymentEntity> = emptyList(),
         val routes: List<RouteEntity> = emptyList(),
         val customerNotes: List<CustomerNoteEntity> = emptyList(),
-        val settings: Map<String, String> = emptyMap()
+        val settings: Map<String, String> = emptyMap(),
+        val sourceUri: Uri? = null,
+        val isZipArchive: Boolean = false,
+        val mediaFilesCount: Int = 0
     )
 
     data class BackupResult(
@@ -93,10 +100,20 @@ object BackupManager {
             val settingsList = settingDao.getAllSettings()
             val settingsMap = settingsList.associate { it.key to it.value }
 
+            val notesMediaDir = File(context.filesDir, "notes_media")
+            val notesAudioDir = File(context.filesDir, "notes_audio")
+            val customSoundsDir = File(context.filesDir, "custom_sounds")
+
+            val mediaFiles = mutableListOf<File>()
+            if (notesMediaDir.exists()) notesMediaDir.listFiles()?.filter { it.isFile }?.let { mediaFiles.addAll(it) }
+            if (notesAudioDir.exists()) notesAudioDir.listFiles()?.filter { it.isFile }?.let { mediaFiles.addAll(it) }
+            if (customSoundsDir.exists()) customSoundsDir.listFiles()?.filter { it.isFile }?.let { mediaFiles.addAll(it) }
+
             val now = Date()
             val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(now)
             val fileSuffix = SimpleDateFormat("yyyy_MM_dd_HHmm", Locale.US).format(now)
-            val fileName = "ShahbuddinDairy_Backup_$fileSuffix.json"
+            val zipFileName = "ShahbuddinDairy_Backup_$fileSuffix.zip"
+            val jsonFileName = "ShahbuddinDairy_Backup_$fileSuffix.json"
 
             var totalLit = 0.0
             var totalBill = 0.0
@@ -128,6 +145,7 @@ object BackupManager {
                 onlinePaymentsCount = onlinePaymentsCount,
                 routesCount = routes.size,
                 notesCount = notes.size,
+                mediaCount = mediaFiles.size,
                 totalLiters = (totalLit * 100.0).toInt() / 100.0,
                 totalBill = (totalBill * 100.0).toInt() / 100.0,
                 totalPaid = (totalPaid * 100.0).toInt() / 100.0,
@@ -136,9 +154,9 @@ object BackupManager {
 
             val payloadMap = linkedMapOf<String, Any>(
                 "app" to "ShahbuddinDairy",
-                "app_version" to "7.5.0",
-                "backup_format" to 3,
-                "schema" to 6,
+                "app_version" to "8.9.0",
+                "backup_format" to 4,
+                "schema" to 7,
                 "created_at" to isoDate,
                 "manifest" to mapOf(
                     "customers" to customers.size,
@@ -147,6 +165,7 @@ object BackupManager {
                     "online_payments" to onlinePaymentsCount,
                     "routes" to routes.size,
                     "notes" to notes.size,
+                    "media_files" to mediaFiles.size,
                     "total_liters" to stats.totalLiters,
                     "total_bill" to stats.totalBill,
                     "total_paid" to stats.totalPaid
@@ -168,40 +187,63 @@ object BackupManager {
             val finalJson = gson.toJson(payloadMap)
             val fileBytes = finalJson.toByteArray(Charsets.UTF_8)
 
+            // 1. Keep internal copies in filesDir/backups
+            val internalBackupsDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
+            val internalJsonFile = File(internalBackupsDir, jsonFileName)
+            internalJsonFile.writeBytes(fileBytes)
+
+            val internalZipFile = File(internalBackupsDir, zipFileName)
+            ZipOutputStream(FileOutputStream(internalZipFile)).use { zos ->
+                // Add backup.json
+                val jsonEntry = ZipEntry("backup.json")
+                zos.putNextEntry(jsonEntry)
+                zos.write(fileBytes)
+                zos.closeEntry()
+
+                // Add all media files
+                for (mf in mediaFiles) {
+                    val relativeDir = when {
+                        mf.parentFile?.name == "notes_media" -> "notes_media"
+                        mf.parentFile?.name == "notes_audio" -> "notes_audio"
+                        else -> "custom_sounds"
+                    }
+                    val entry = ZipEntry("$relativeDir/${mf.name}")
+                    zos.putNextEntry(entry)
+                    mf.inputStream().use { it.copyTo(zos) }
+                    zos.closeEntry()
+                }
+            }
+
+            val zipBytes = internalZipFile.readBytes()
             var savedUri: Uri? = null
             var savedPath: String? = null
-
-            // Also keep an internal copy in filesDir/backups
-            val internalBackupsDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
-            val internalFile = File(internalBackupsDir, fileName)
-            internalFile.writeBytes(fileBytes)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
                 val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(MediaStore.Downloads.MIME_TYPE, "application/json")
+                    put(MediaStore.Downloads.DISPLAY_NAME, zipFileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/zip")
                     put(MediaStore.Downloads.IS_PENDING, 1)
                 }
                 val itemUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 if (itemUri != null) {
                     resolver.openOutputStream(itemUri)?.use { os ->
-                        os.write(fileBytes)
+                        os.write(zipBytes)
                         os.flush()
                     }
                     values.clear()
                     values.put(MediaStore.Downloads.IS_PENDING, 0)
                     resolver.update(itemUri, values, null, null)
                     savedUri = itemUri
-                    savedPath = "Downloads/$fileName"
+                    savedPath = "Downloads/$zipFileName"
                 }
             } else {
                 @Suppress("DEPRECATION")
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                val targetFile = File(downloadsDir, fileName)
+                val targetFile = File(downloadsDir, zipFileName)
                 FileOutputStream(targetFile).use { fos ->
-                    fos.write(fileBytes)
+                    fos.write(zipBytes)
                     fos.flush()
                 }
                 savedPath = targetFile.absolutePath
@@ -209,7 +251,7 @@ object BackupManager {
             }
 
             // Verify physical existence
-            val verifiedLength = if (internalFile.exists()) internalFile.length() else 0L
+            val verifiedLength = if (internalZipFile.exists()) internalZipFile.length() else 0L
             if (verifiedLength == 0L) {
                 return BackupResult(false, "Failed to verify created backup file (0 bytes).")
             }
@@ -218,16 +260,16 @@ object BackupManager {
             settingDao.setSetting(AppSettingEntity("last_backup_time", isoDate))
             val prevCount = settingDao.getSetting("backup_count")?.toIntOrNull() ?: 0
             settingDao.setSetting(AppSettingEntity("backup_count", (prevCount + 1).toString()))
-            settingDao.setSetting(AppSettingEntity("last_backup_path", savedPath ?: internalFile.absolutePath))
+            settingDao.setSetting(AppSettingEntity("last_backup_path", savedPath ?: internalZipFile.absolutePath))
             settingDao.setSetting(AppSettingEntity("last_backup_size", verifiedLength.toString()))
 
-            Log.i(TAG, "Physical backup created successfully at $savedPath ($verifiedLength bytes)")
+            Log.i(TAG, "Physical backup archive created successfully at $savedPath ($verifiedLength bytes, ${mediaFiles.size} media files)")
             BackupResult(
                 success = true,
-                message = "Backup created & verified: $fileName",
-                uri = savedUri ?: Uri.fromFile(internalFile),
-                filePath = savedPath ?: internalFile.absolutePath,
-                fileName = fileName,
+                message = "Backup archive created & verified: $zipFileName (${mediaFiles.size} media files)",
+                uri = savedUri ?: Uri.fromFile(internalZipFile),
+                filePath = savedPath ?: internalZipFile.absolutePath,
+                fileName = zipFileName,
                 sizeBytes = verifiedLength,
                 timestamp = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(now),
                 stats = stats
@@ -422,16 +464,36 @@ object BackupManager {
                 val notesArray = dbObj.getAsJsonArray("customer_notes")
                 for (i in 0 until notesArray.size()) {
                     val n = notesArray.get(i).asJsonObject
-                    val cid = n.get("customer_id")?.asLong ?: continue
+                    val cid = when {
+                        n.has("customerId") && !n.get("customerId").isJsonNull -> n.get("customerId").asLong
+                        n.has("customer_id") && !n.get("customer_id").isJsonNull -> n.get("customer_id").asLong
+                        else -> 0L
+                    }
                     customerNotes.add(
                         CustomerNoteEntity(
                             id = n.get("id")?.asString ?: "note_$i",
                             customerId = cid,
                             content = n.get("content")?.asString ?: "",
                             category = n.get("category")?.asString ?: "General",
-                            isPinned = n.get("is_pinned")?.asBoolean ?: false,
-                            createdAt = n.get("created_at")?.asString ?: "",
-                            updatedAt = n.get("updated_at")?.asString ?: ""
+                            isPinned = when {
+                                n.has("isPinned") && !n.get("isPinned").isJsonNull -> n.get("isPinned").asBoolean
+                                n.has("is_pinned") && !n.get("is_pinned").isJsonNull -> n.get("is_pinned").asBoolean
+                                else -> false
+                            },
+                            createdAt = (n.get("createdAt") ?: n.get("created_at"))?.asString ?: "",
+                            updatedAt = (n.get("updatedAt") ?: n.get("updated_at"))?.asString ?: "",
+                            title = n.get("title")?.asString ?: "",
+                            tags = n.get("tags")?.asString ?: "",
+                            priority = n.get("priority")?.asString ?: "Normal",
+                            reminderDateTime = (n.get("reminderDateTime") ?: n.get("reminder_date_time"))?.asString ?: "",
+                            mediaUris = (n.get("mediaUris") ?: n.get("media_uris"))?.asString ?: "",
+                            audioUri = (n.get("audioUri") ?: n.get("audio_uri"))?.asString ?: "",
+                            audioDurationMs = (n.get("audioDurationMs") ?: n.get("audio_duration_ms"))?.asLong ?: 0L,
+                            isCompleted = when {
+                                n.has("isCompleted") && !n.get("isCompleted").isJsonNull -> n.get("isCompleted").asBoolean
+                                n.has("is_completed") && !n.get("is_completed").isJsonNull -> n.get("is_completed").asBoolean
+                                else -> false
+                            }
                         )
                     )
                 }
@@ -475,6 +537,61 @@ object BackupManager {
         }
     }
 
+    suspend fun validateBackupFromUri(context: Context, uri: Uri): ValidationResult {
+        return try {
+            val contentResolver = context.contentResolver
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return ValidationResult(false, "Could not open selected file")
+
+            if (bytes.size < 4) {
+                return ValidationResult(false, "File is too small to be a valid backup")
+            }
+
+            val isZip = bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() &&
+                    bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()
+
+            if (isZip) {
+                var jsonContent: String? = null
+                var mediaCount = 0
+                ZipInputStream(bytes.inputStream()).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        if (entry.name == "backup.json" || entry.name.endsWith(".json")) {
+                            jsonContent = zis.bufferedReader(Charsets.UTF_8).readText()
+                        } else if (entry.name.startsWith("notes_media/") || entry.name.startsWith("notes_audio/") || entry.name.startsWith("custom_sounds/")) {
+                            if (!entry.isDirectory) mediaCount++
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+
+                if (jsonContent.isNullOrBlank()) {
+                    return ValidationResult(false, "No valid backup.json database record found inside ZIP archive")
+                }
+
+                val jsonValidation = validateBackupJson(jsonContent!!)
+                if (!jsonValidation.isValid) {
+                    return jsonValidation
+                }
+
+                return jsonValidation.copy(
+                    sourceUri = uri,
+                    isZipArchive = true,
+                    mediaFilesCount = mediaCount,
+                    stats = jsonValidation.stats?.copy(mediaCount = mediaCount)
+                )
+            } else {
+                val rawJson = bytes.toString(Charsets.UTF_8)
+                val jsonValidation = validateBackupJson(rawJson)
+                return jsonValidation.copy(sourceUri = uri, isZipArchive = false)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error validating backup from URI", e)
+            ValidationResult(false, "Validation failed: ${e.message}")
+        }
+    }
+
     suspend fun executeRestore(
         context: Context,
         database: AppDatabase,
@@ -514,6 +631,34 @@ object BackupManager {
             return RestoreResult(false, "Could not create safety snapshot before restore: ${e.message}")
         }
 
+        // STEP 1.5: RESTORE MEDIA FILES IF ZIP ARCHIVE
+        var restoredMediaCount = 0
+        if (validationResult.isZipArchive && validationResult.sourceUri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(validationResult.sourceUri)
+                if (inputStream != null) {
+                    ZipInputStream(inputStream).use { zis ->
+                        var entry = zis.nextEntry
+                        while (entry != null) {
+                            if (!entry.isDirectory && (entry.name.startsWith("notes_media/") || entry.name.startsWith("notes_audio/") || entry.name.startsWith("custom_sounds/"))) {
+                                val destFile = File(context.filesDir, entry.name)
+                                destFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
+                                destFile.outputStream().use { fos ->
+                                    zis.copyTo(fos)
+                                }
+                                restoredMediaCount++
+                            }
+                            zis.closeEntry()
+                            entry = zis.nextEntry
+                        }
+                    }
+                    Log.i(TAG, "Restored $restoredMediaCount media files from ZIP archive")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Warning: Could not extract media files: ${e.message}")
+            }
+        }
+
         // STEP 2: RESTORE IN ATOMIC ROOM TRANSACTION
         return try {
             database.withTransaction {
@@ -539,11 +684,12 @@ object BackupManager {
             val postDeliv = database.deliveryDao().getDeliveryCount()
             val postPay = database.paymentDao().getPaymentCount()
 
-            Log.i(TAG, "Post-restore verified: Customers=$postCust, Deliveries=$postDeliv, Payments=$postPay")
+            Log.i(TAG, "Post-restore verified: Customers=$postCust, Deliveries=$postDeliv, Payments=$postPay, Media=$restoredMediaCount")
 
+            val mediaMsg = if (restoredMediaCount > 0) " & $restoredMediaCount media files" else ""
             RestoreResult(
                 success = true,
-                message = "Successfully restored $postCust customers, $postDeliv deliveries, $postPay payments.",
+                message = "Successfully restored $postCust customers, $postDeliv deliveries, $postPay payments$mediaMsg.",
                 restoredStats = validationResult.stats
             )
         } catch (e: Exception) {
@@ -591,7 +737,7 @@ object BackupManager {
         val internalBackupsDir = File(context.filesDir, "backups")
         if (!internalBackupsDir.exists()) return null
         return internalBackupsDir.listFiles()
-            ?.filter { it.isFile && it.extension == "json" && !it.name.contains("safety") }
+            ?.filter { it.isFile && (it.extension == "zip" || it.extension == "json") && !it.name.contains("safety") }
             ?.maxByOrNull { it.lastModified() }
     }
 }

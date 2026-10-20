@@ -19,11 +19,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
+import android.net.Uri
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
@@ -104,36 +110,672 @@ import com.shahbuddindairy.app.domain.CalculationEngine
 import com.shahbuddindairy.app.ui.components.AppTopHeader
 import com.shahbuddindairy.app.ui.components.StatCard
 import com.shahbuddindairy.app.ui.theme.AccentColor
+import com.shahbuddindairy.app.ui.theme.ThemeMode
 import com.shahbuddindairy.app.ui.theme.DairyGreenDark
 import com.shahbuddindairy.app.ui.theme.LocalThemeController
 import com.shahbuddindairy.app.ui.theme.StatusAmber
 import com.shahbuddindairy.app.ui.theme.StatusRed
-import com.shahbuddindairy.app.ui.theme.ThemeMode
 import com.shahbuddindairy.app.ai.VoiceFeedbackManager
 import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
+import com.shahbuddindairy.app.audio.SoundEffectManager
+import com.shahbuddindairy.app.audio.SoundEvent
+import com.shahbuddindairy.app.audio.SoundProfile
+import com.shahbuddindairy.app.gesture.GestureSettingsManager
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 import android.widget.Toast
 
 @Composable
 fun TotalHisabScreen(viewModel: BackupViewModel) {
-    BackupScreen(viewModel = viewModel)
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val colorScheme = MaterialTheme.colorScheme
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colorScheme.background)
+    ) {
+        // TOP APP HEADER
+        AppTopHeader(
+            title = if (selectedTab == 0) "कुल हिसाब (Master Ledger)" else "सेटिंग्स व टूल्स (Settings)",
+            subtitle = "शाहबुद्दीन डेयरी • V8.9 • गुलाब नगर, बरेली"
+        )
+
+        // 2-TAB SEGMENTED CONTROLLER
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Surface(
+                onClick = { selectedTab = 0 },
+                shape = RoundedCornerShape(10.dp),
+                color = if (selectedTab == 0) colorScheme.primary else Color.Transparent,
+                modifier = Modifier.weight(1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 9.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = null,
+                        tint = if (selectedTab == 0) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "कुल हिसाब (Ledger)",
+                        fontSize = 12.5.sp,
+                        fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selectedTab == 0) colorScheme.onPrimary else colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Surface(
+                onClick = { selectedTab = 1 },
+                shape = RoundedCornerShape(10.dp),
+                color = if (selectedTab == 1) colorScheme.primary else Color.Transparent,
+                modifier = Modifier.weight(1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(vertical = 9.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = null,
+                        tint = if (selectedTab == 1) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "सेटिंग्स व बैकअप",
+                        fontSize = 12.5.sp,
+                        fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
+                        color = if (selectedTab == 1) colorScheme.onPrimary else colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        if (selectedTab == 0) {
+            MasterHisabLedgerTab(viewModel = viewModel)
+        } else {
+            BackupScreen(viewModel = viewModel, showHeader = false)
+        }
+    }
 }
 
 @Composable
-fun BackupScreen(viewModel: BackupViewModel) {
+fun MasterHisabLedgerTab(viewModel: BackupViewModel) {
+    val ledgerState by viewModel.ledgerState.collectAsState()
+    val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("ALL") }
+
+    LaunchedEffect(Unit) {
+        viewModel.loadLedgerSummary()
+    }
+
+    val filteredList = remember(ledgerState.customerLedgers, searchQuery, selectedFilter) {
+        ledgerState.customerLedgers.filter { item ->
+            val matchesQuery = searchQuery.isBlank() ||
+                item.customer.name.contains(searchQuery, ignoreCase = true) ||
+                item.customer.phone.contains(searchQuery) ||
+                item.customer.mohalla.contains(searchQuery, ignoreCase = true) ||
+                item.customer.id.toString() == searchQuery.trim()
+
+            val matchesFilter = when (selectedFilter) {
+                "DUE" -> item.netBalance > 0
+                "ADVANCE" -> item.netBalance < 0
+                "CLEARED" -> item.netBalance == 0.0
+                else -> true
+            }
+
+            matchesQuery && matchesFilter
+        }
+    }
+
+    val dueCount = remember(ledgerState.customerLedgers) {
+        ledgerState.customerLedgers.count { it.netBalance > 0 }
+    }
+    val advCount = remember(ledgerState.customerLedgers) {
+        ledgerState.customerLedgers.count { it.netBalance < 0 }
+    }
+    val clearCount = remember(ledgerState.customerLedgers) {
+        ledgerState.customerLedgers.count { it.netBalance == 0.0 }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // 1. TOP CLOSING REPORT ACTION (NIGHTLY REPORT TO OWNER 9258263340)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.primaryContainer),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🌙 रात का बंद हिसाब (Daily Closing)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "मालिक WhatsApp (9258263340) पर तुरंत रिपोर्ट भेजें",
+                                fontSize = 11.sp,
+                                color = colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                val msg = buildString {
+                                    appendLine("🥛 *शाहबुद्दीन डेयरी — V8.9 रात का बंद हिसाब*")
+                                    appendLine("📅 तारीख: ${java.text.SimpleDateFormat("dd/MM/yyyy • hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())}")
+                                    appendLine("📍 गुलाब नगर, बरेली")
+                                    appendLine("════════════════════════")
+                                    appendLine("🥛 कुल दूध वितरण: ${ledgerState.totalLiters} Ltr")
+                                    appendLine("💵 कुल बिक्री बिल: ₹${ledgerState.totalBilled}")
+                                    appendLine("💰 नकद वसूली: ₹${ledgerState.totalCashCollected}")
+                                    appendLine("📱 ऑनलाइन वसूली: ₹${ledgerState.totalOnlineCollected}")
+                                    appendLine("✅ कुल जमा वसूली: ₹${ledgerState.totalPaid}")
+                                    appendLine("⚠️ कुल बाजार बाकी: ₹${ledgerState.totalMarketDue}")
+                                    appendLine("🟢 कुल एडवांस जमा: ₹${ledgerState.totalAdvance}")
+                                    appendLine("👥 कुल सक्रिय ग्राहक: ${ledgerState.customerLedgers.size}")
+                                    appendLine("════════════════════════")
+                                    appendLine("Shahbuddin Dairy V8.9 SQLite Safe Engine")
+                                }
+                                val encoded = java.net.URLEncoder.encode(msg, "UTF-8")
+                                val ownerPhone = WhatsAppReportManager.getOwnerReportPhone(context).ifBlank { "9258263340" }
+                                val uri = Uri.parse("https://api.whatsapp.com/send?phone=91$ownerPhone&text=$encoded")
+                                val intent = Intent(Intent.ACTION_VIEW, uri)
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "WhatsApp error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("भेजें WhatsApp", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. 4-KPI SUMMARY FINANCIAL STATS GRID
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Card 1: Total Liters
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.WaterDrop, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("कुल दूध", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${ledgerState.totalLiters} L",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Card 2: Total Billed
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Calculate, contentDescription = null, tint = Color(0xFF15803D), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("कुल बिक्री", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "₹${ledgerState.totalBilled}",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFF15803D)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Card 3: Total Collected
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Payments, contentDescription = null, tint = colorScheme.secondary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("कुल वसूली (जमा)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "₹${ledgerState.totalPaid}",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = colorScheme.secondary
+                            )
+                            Text(
+                                text = "नकद: ₹${ledgerState.totalCashCollected} | ऑन: ₹${ledgerState.totalOnlineCollected}",
+                                fontSize = 9.sp,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Card 4: Total Market Due
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = StatusRed, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("बाजार बाकी (Due)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "₹${ledgerState.totalMarketDue}",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = StatusRed
+                            )
+                            Text(
+                                text = "एडवांस: ₹${ledgerState.totalAdvance}",
+                                fontSize = 9.sp,
+                                color = Color(0xFF15803D)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. SEARCH BAR & FILTER CHIPS
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("ग्राहक का नाम, फोन या मोहल्ला खोजें...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            Icon(
+                                imageVector = Icons.Default.Undo,
+                                contentDescription = "Clear",
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clickable { searchQuery = "" }
+                            )
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colorScheme.surface,
+                        unfocusedContainerColor = colorScheme.surface,
+                        focusedBorderColor = colorScheme.primary,
+                        unfocusedBorderColor = colorScheme.outlineVariant
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedFilter == "ALL",
+                        onClick = { selectedFilter = "ALL" },
+                        label = { Text("सभी (${ledgerState.customerLedgers.size})", fontSize = 11.5.sp) },
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "DUE",
+                        onClick = { selectedFilter = "DUE" },
+                        label = { Text("बकायादार ($dueCount)", fontSize = 11.5.sp, color = if (selectedFilter == "DUE") Color.White else StatusRed) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = StatusRed, selectedLabelColor = Color.White),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "ADVANCE",
+                        onClick = { selectedFilter = "ADVANCE" },
+                        label = { Text("एडवांस ($advCount)", fontSize = 11.5.sp, color = if (selectedFilter == "ADVANCE") Color.White else Color(0xFF15803D)) },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF15803D), selectedLabelColor = Color.White),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "CLEARED",
+                        onClick = { selectedFilter = "CLEARED" },
+                        label = { Text("बेबाक ($clearCount)", fontSize = 11.5.sp) },
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            }
+        }
+
+        // 4. CUSTOMER LEDGER ROWS
+        if (ledgerState.isLoading) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = colorScheme.primary)
+                }
+            }
+        } else if (filteredList.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("कोई ग्राहक रिकॉर्ड नहीं मिला", fontWeight = FontWeight.Bold, color = colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("कृपया खोज या फ़िल्टर बदलकर देखें", fontSize = 12.sp, color = colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                    }
+                }
+            }
+        } else {
+            items(filteredList, key = { it.customer.id }) { item ->
+                CustomerLedgerCard(item = item)
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(80.dp))
+        }
+    }
+}
+
+@Composable
+fun CustomerLedgerCard(item: CustomerLedgerSummary) {
+    val context = LocalContext.current
+    val colorScheme = MaterialTheme.colorScheme
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Customer Header Row: [ID #1] Name [Mohalla]
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = colorScheme.primaryContainer,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(
+                            text = "#${item.customer.id}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = item.customer.name,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onSurface
+                        )
+                        if (item.customer.mohalla.isNotBlank()) {
+                            Text(
+                                text = item.customer.mohalla,
+                                fontSize = 11.sp,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Balance Badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = when {
+                        item.netBalance > 0 -> Color(0xFFFEE2E2)
+                        item.netBalance < 0 -> Color(0xFFDCFCE7)
+                        else -> colorScheme.surfaceContainerHigh
+                    },
+                    border = androidx.compose.foundation.BorderStroke(
+                        width = 1.dp,
+                        color = when {
+                            item.netBalance > 0 -> Color(0xFFEF4444)
+                            item.netBalance < 0 -> Color(0xFF22C55E)
+                            else -> colorScheme.outlineVariant
+                        }
+                    )
+                ) {
+                    Text(
+                        text = when {
+                            item.netBalance > 0 -> "₹${CalculationEngine.round2(item.netBalance)} बाकी"
+                            item.netBalance < 0 -> "₹${CalculationEngine.round2(-item.netBalance)} जमा"
+                            else -> "बेबाक ✓"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        color = when {
+                            item.netBalance > 0 -> Color(0xFFDC2626)
+                            item.netBalance < 0 -> Color(0xFF15803D)
+                            else -> colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Details Row: Milk Liters • Total Bill • Total Paid
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("कुल दूध", fontSize = 10.sp, color = colorScheme.onSurfaceVariant)
+                    Text("${CalculationEngine.round2(item.totalLiters)} L", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+                Column {
+                    Text("कुल बिल", fontSize = 10.sp, color = colorScheme.onSurfaceVariant)
+                    Text("₹${CalculationEngine.round2(item.totalBilled)}", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                }
+                Column {
+                    Text("कुल जमा", fontSize = 10.sp, color = colorScheme.onSurfaceVariant)
+                    Text("₹${CalculationEngine.round2(item.totalPaid)}", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                }
+                if (item.pbsPending > 0) {
+                    Column {
+                        Text("पिछला बाकी", fontSize = 10.sp, color = StatusRed)
+                        Text("₹${CalculationEngine.round2(item.pbsPending)}", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = StatusRed)
+                    }
+                }
+            }
+
+            // Quick Actions: [Call] and [WhatsApp तकादा]
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Call Button
+                OutlinedButton(
+                    onClick = {
+                        val phone = item.customer.phone
+                        if (phone.isNotBlank()) {
+                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                            try {
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Call failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "ग्राहक का फोन नंबर नहीं है", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("कॉल करें", fontSize = 11.5.sp)
+                }
+
+                // WhatsApp Reminder Button
+                Button(
+                    onClick = {
+                        val phone = item.customer.phone
+                        if (phone.isNotBlank()) {
+                            val cleanPhone = phone.replace("+", "").replace("-", "").replace(" ", "").trim()
+                            val fullPhone = if (cleanPhone.length == 10) "91$cleanPhone" else cleanPhone
+                            val dueMsg = if (item.netBalance > 0) {
+                                "नमस्ते ${item.customer.name} जी,\n\nशाहबुद्दीन डेयरी की तरफ से आपके दूध का कुल हिसाब ₹${item.netBalance} बकाया (बाकी) है।\nकुल दूध: ${item.totalLiters} लीटर\nकुल बिल: ₹${item.totalBilled}\nकुल जमा: ₹${item.totalPaid}\n\nकृपया समय पर भुगतान करने की कृपा करें।\nधन्यवाद!\nशाहबुद्दीन डेयरी, गुलाब नगर, बरेली\nसंपर्क: 9897259461"
+                            } else {
+                                "नमस्ते ${item.customer.name} जी,\n\nशाहबुद्दीन डेयरी की तरफ से आपके दूध का कुल हिसाब:\nकुल दूध: ${item.totalLiters} लीटर\nकुल बिल: ₹${item.totalBilled}\nकुल जमा: ₹${item.totalPaid}\nशुद्ध शेष: ${if (item.netBalance < 0) "₹${-item.netBalance} एडवांस जमा" else "बेबाक ✓"}\n\nधन्यवाद!\nशाहबुद्दीन डेयरी, गुलाब नगर, बरेली"
+                            }
+                            val encoded = java.net.URLEncoder.encode(dueMsg, "UTF-8")
+                            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$fullPhone&text=$encoded")
+                            val intent = Intent(Intent.ACTION_VIEW, uri)
+                            try {
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "WhatsApp error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "ग्राहक का फोन नंबर नहीं है", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1.3f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp, horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("तकादा WhatsApp", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BackupScreen(viewModel: BackupViewModel, showHeader: Boolean = true) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val themeController = LocalThemeController.current
 
-    // Sound & Voice TTS Manager States
+    // Sound Effect & Gesture Engine Managers
     val voiceManager = remember { VoiceFeedbackManager.getInstance(context) }
-    var masterSound by remember { mutableStateOf(voiceManager.isMasterSoundEnabled) }
+    val soundManager = remember { SoundEffectManager.getInstance(context) }
+    val gestureManager = remember { GestureSettingsManager.getInstance(context) }
+
+    var masterSound by remember { mutableStateOf(soundManager.isMasterSoundEnabled) }
     var voiceTts by remember { mutableStateOf(voiceManager.isVoiceEnabled) }
-    var deliverySound by remember { mutableStateOf(voiceManager.isDeliverySoundEnabled) }
-    var nagaSound by remember { mutableStateOf(voiceManager.isNagaSoundEnabled) }
-    var saveSound by remember { mutableStateOf(voiceManager.isSaveSoundEnabled) }
-    var shareSound by remember { mutableStateOf(voiceManager.isShareSoundEnabled) }
-    var hapticFeedback by remember { mutableStateOf(voiceManager.isHapticEnabled) }
+    var soundVolume by remember { mutableFloatStateOf(soundManager.soundVolume) }
+    var soundProfile by remember { mutableStateOf(soundManager.activeProfile) }
+    var hapticFeedback by remember { mutableStateOf(soundManager.isHapticEnabled) }
+
+    // Gesture States
+    var masterGesture by remember { mutableStateOf(gestureManager.isMasterGestureEnabled) }
+    var gestureDownDeliver by remember { mutableStateOf(gestureManager.isSwipeDownDeliverEnabled) }
+    var gestureUpNaaga by remember { mutableStateOf(gestureManager.isSwipeUpNaagaEnabled) }
+    var gestureLeftPrev by remember { mutableStateOf(gestureManager.isSwipeLeftPrevEnabled) }
+    var gestureRightNext by remember { mutableStateOf(gestureManager.isSwipeRightNextEnabled) }
+    var gestureSensitivity by remember { mutableFloatStateOf(gestureManager.sensitivityThresholdPx) }
+    var gestureSound by remember { mutableStateOf(gestureManager.isGestureSoundEnabled) }
+    var gestureHaptic by remember { mutableStateOf(gestureManager.isGestureHapticEnabled) }
+    var gestureTestFeedback by remember { mutableStateOf("यहाँ स्वाइप करके जेस्चर टेस्ट करें") }
 
     // Owner Daily WhatsApp Report Settings States (Phase 10: default 9258263340)
     var ownerReportPhoneInput by remember { mutableStateOf(WhatsAppReportManager.getOwnerReportPhone(context)) }
@@ -194,11 +836,13 @@ fun BackupScreen(viewModel: BackupViewModel) {
             .fillMaxSize()
             .background(colorScheme.background)
     ) {
-        // TOP APP HEADER
-        AppTopHeader(
-            title = "Total Hisab",
-            subtitle = "कुल हिसाब, डेटा सुरक्षा व सेटिंग्स"
-        )
+        if (showHeader) {
+            // TOP APP HEADER
+            AppTopHeader(
+                title = "सेटिंग्स व बैकअप",
+                subtitle = "डेटा सुरक्षा, बैकअप व सेटिंग्स • V8.9"
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -1023,7 +1667,8 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 }
             }
 
-            // 9. SOUND, HAPTICS & VOICE (TTS) SETTINGS CARD (Phase 12)
+            // 9. SOUND, HAPTICS & VOICE (TTS) ENGINE CARD (V8.9)
+            var showAllEvents by remember { mutableStateOf(false) }
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
@@ -1040,10 +1685,10 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Notifications, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "साउंड, आवाज और वाइब्रेशन (Audio & Haptics)",
+                                text = "साउंड, आवाज व वाइब्रेशन इंजन (Audio Engine)",
                                 fontSize = 15.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = colorScheme.onSurface
@@ -1052,7 +1697,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                     }
 
                     Text(
-                        text = "डिलीवरी, नागा और शेयरिंग के लिए ऑडियो संकेत व देशी हिंदी टेक्स्ट-टू-स्पीच। सिस्टम साइलेंट मोड का स्वतः सम्मान करता है।",
+                        text = "Android SoundPool इंजन: 14 क्रिस्टल-क्लियर ऑडियो इवेंट्स, साउंड प्रोफाइल, स्वतंत्र हिंदी TTS और टच हैप्टिक्स।",
                         fontSize = 11.5.sp,
                         color = colorScheme.onSurfaceVariant,
                         lineHeight = 16.sp
@@ -1068,19 +1713,20 @@ fun BackupScreen(viewModel: BackupViewModel) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("मुख्य साउंड (Master Audio)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text("सभी ऑडियो बीप व आवाजों को चालू या बंद करें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            Text("सभी 14 साउंड इवेंट्स को एक क्लिक में चालू या बंद करें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = masterSound,
                             onCheckedChange = {
                                 masterSound = it
+                                soundManager.isMasterSoundEnabled = it
                                 voiceManager.isMasterSoundEnabled = it
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
                         )
                     }
 
-                    // Native Voice TTS Switch
+                    // Native Voice TTS Switch (Independent of event sounds)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1092,52 +1738,9 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         }
                         Switch(
                             checked = voiceTts,
-                            enabled = masterSound,
                             onCheckedChange = {
                                 voiceTts = it
                                 voiceManager.isVoiceEnabled = it
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
-                        )
-                    }
-
-                    // Delivery Sound Chime
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("डिलीवरी सफलता टोन (Delivery Beep)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text("दूध देने पर तुरंत कन्फर्मेशन टोन", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
-                        }
-                        Switch(
-                            checked = deliverySound,
-                            enabled = masterSound,
-                            onCheckedChange = {
-                                deliverySound = it
-                                voiceManager.isDeliverySoundEnabled = it
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
-                        )
-                    }
-
-                    // Naga Sound Chime
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("नागा टोन (Naga Chime)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text("नागा दर्ज होने पर अलर्ट टोन", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
-                        }
-                        Switch(
-                            checked = nagaSound,
-                            enabled = masterSound,
-                            onCheckedChange = {
-                                nagaSound = it
-                                voiceManager.isNagaSoundEnabled = it
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
                         )
@@ -1151,30 +1754,501 @@ fun BackupScreen(viewModel: BackupViewModel) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("हैप्टिक वाइब्रेशन (Touch Feedback)", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text("बटन दबाने पर सूक्ष्म कंपन (Helio G88 Optimized)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            Text("स्वाइप व बटन पर स्पर्श कंपन (Helio G88 Optimized)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = hapticFeedback,
                             onCheckedChange = {
                                 hapticFeedback = it
+                                soundManager.isHapticEnabled = it
                                 voiceManager.isHapticEnabled = it
                             },
                             colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
                         )
                     }
 
-                    Button(
-                        onClick = {
-                            voiceManager.playDeliverySound()
-                            voiceManager.speak("शाहबुद्दीन डेयरी, आवाज और साउंड परीक्षण सफल")
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primaryContainer),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    // Sound Profile Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("साउंड प्रोफाइल (Sound Profile)", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            SoundProfile.values().forEach { profile ->
+                                FilterChip(
+                                    selected = soundProfile == profile,
+                                    onClick = {
+                                        soundProfile = profile
+                                        soundManager.activeProfile = profile
+                                        soundManager.playPreview(SoundEvent.DELIVERED)
+                                    },
+                                    label = { Text(profile.label, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = colorScheme.primary,
+                                        selectedLabelColor = colorScheme.onPrimary
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Volume Slider
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("साउंड वॉल्यूम (Volume)", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text("${(soundVolume * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                        }
+                        Slider(
+                            value = soundVolume,
+                            onValueChange = {
+                                soundVolume = it
+                                soundManager.soundVolume = it
+                            },
+                            valueRange = 0.1f..1.0f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = colorScheme.primary,
+                                activeTrackColor = colorScheme.primary
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // 14 Sound Events Header with Toggle Expand/Collapse
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAllEvents = !showAllEvents }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Notifications, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("TEST SOUND & VOICE (साउंड टेस्ट करें)", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Settings, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "प्रत्येक इवेंट साउंड कॉन्फ़िगर करें (${SoundEvent.values().size} इवेंट्स)",
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = if (showAllEvents) "छुपाएं ▲" else "देखें ▼",
+                            fontSize = 11.5.sp,
+                            color = colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showAllEvents) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SoundEvent.values().forEach { event ->
+                                var eventEnabled by remember(event) { mutableStateOf(soundManager.isEventEnabled(event)) }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(event.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("ID: ${event.idKey}", fontSize = 10.sp, color = colorScheme.onSurfaceVariant)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(
+                                            onClick = {
+                                                soundManager.playPreview(event)
+                                                soundManager.vibrate(30)
+                                            },
+                                            shape = CircleShape,
+                                            color = colorScheme.primary.copy(alpha = 0.12f),
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = "Test", tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Switch(
+                                            checked = eventEnabled,
+                                            enabled = masterSound,
+                                            onCheckedChange = {
+                                                eventEnabled = it
+                                                soundManager.setEventEnabled(event, it)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Test and Reset Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                Toast.makeText(context, "साउंड परीक्षण शुरू...", Toast.LENGTH_SHORT).show()
+                                soundManager.testAllSounds(coroutineScope) { _ -> }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primaryContainer),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("TEST ALL SOUNDS", color = colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                soundManager.resetAllSoundsToDefault()
+                                soundVolume = 1.0f
+                                soundProfile = SoundProfile.DAIRY_PRO
+                                masterSound = true
+                                Toast.makeText(context, "डिफ़ॉल्ट साउंड रीसेट किए गए ✓", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(0.9f)
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("RESET DEFAULT", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            // 10. RUNNER MODE GESTURES & SWIPE ENGINE CARD (V8.9)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.TouchApp, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "रनर मोड स्वाइप जेस्चर (Runner Gestures)",
+                                fontSize = 15.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "दूध वितरण के समय 1-हाथ से तेज़ काम करने के लिए 4-दिशा स्वाइप इंजन। स्क्रीन पर स्वाइप करके तुरंत कार्रवाई करें।",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // Master Gestures Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("मुख्य जेस्चर इंजन (Master Gestures)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("रनर स्क्रीन पर स्वाइप जेस्चर पहचान सक्षम करें", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = masterGesture,
+                            onCheckedChange = {
+                                masterGesture = it
+                                gestureManager.isMasterGestureEnabled = it
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = colorScheme.onPrimary, checkedTrackColor = colorScheme.primary)
+                        )
+                    }
+
+                    // 4 Directions
+                    // 1. Swipe Down -> Delivered & Save
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.ArrowDownward, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("⬇️ स्वाइप डाउन (Swipe Down)", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text("दूध दिया और सेव करें (Delivered & Save)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = gestureDownDeliver,
+                            enabled = masterGesture,
+                            onCheckedChange = {
+                                gestureDownDeliver = it
+                                gestureManager.isSwipeDownDeliverEnabled = it
+                            }
+                        )
+                    }
+
+                    // 2. Swipe Up -> Naaga
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("⬆️ स्वाइप अप (Swipe Up)", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text("नागा दर्ज करें (Mark Naaga)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = gestureUpNaaga,
+                            enabled = masterGesture,
+                            onCheckedChange = {
+                                gestureUpNaaga = it
+                                gestureManager.isSwipeUpNaagaEnabled = it
+                            }
+                        )
+                    }
+
+                    // 3. Swipe Left -> Previous Customer
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("⬅️ स्वाइप लेफ्ट (Swipe Left)", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text("पिछला ग्राहक (Previous Customer)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = gestureLeftPrev,
+                            enabled = masterGesture,
+                            onCheckedChange = {
+                                gestureLeftPrev = it
+                                gestureManager.isSwipeLeftPrevEnabled = it
+                            }
+                        )
+                    }
+
+                    // 4. Swipe Right -> Next Customer
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text("➡️ स्वाइप राइट (Swipe Right)", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text("अगला ग्राहक (Next Customer)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Switch(
+                            checked = gestureRightNext,
+                            enabled = masterGesture,
+                            onCheckedChange = {
+                                gestureRightNext = it
+                                gestureManager.isSwipeRightNextEnabled = it
+                            }
+                        )
+                    }
+
+                    // Sensitivity Slider
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("स्वाइप संवेदनशीलता (Threshold)", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = when {
+                                    gestureSensitivity <= 50f -> "${gestureSensitivity.toInt()} px (तेज़ - Sensitive)"
+                                    gestureSensitivity >= 110f -> "${gestureSensitivity.toInt()} px (मजबूत - Firm)"
+                                    else -> "${gestureSensitivity.toInt()} px (संतुलित - Normal)"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary
+                            )
+                        }
+                        Slider(
+                            value = gestureSensitivity,
+                            onValueChange = {
+                                gestureSensitivity = it
+                                gestureManager.sensitivityThresholdPx = it
+                            },
+                            valueRange = 35f..150f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = colorScheme.primary,
+                                activeTrackColor = colorScheme.primary
+                            )
+                        )
+                    }
+
+                    // Sound & Haptic on Gesture
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("जेस्चर ध्वनि पुष्टि (Sound Cue)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                            Text("स्वाइप पूरा होने पर ध्वनि टोन", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = gestureSound,
+                            enabled = masterGesture,
+                            onCheckedChange = {
+                                gestureSound = it
+                                gestureManager.isGestureSoundEnabled = it
+                            }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("जेस्चर कंपन पुष्टि (Haptic Cue)", fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                            Text("स्वाइप पूरा होने पर हैप्टिक झटका", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = gestureHaptic,
+                            enabled = masterGesture,
+                            onCheckedChange = {
+                                gestureHaptic = it
+                                gestureManager.isGestureHapticEnabled = it
+                            }
+                        )
+                    }
+
+                    // LIVE INTERACTIVE GESTURE TEST PAD
+                    HorizontalDivider(color = colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Text("लाइव जेस्चर टेस्ट पैड (Live Gesture Test Pad)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                    var totalDragX by remember { mutableFloatStateOf(0f) }
+                    var totalDragY by remember { mutableFloatStateOf(0f) }
+                    var gestureTriggeredInCurrentDrag by remember { mutableStateOf(false) }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(110.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colorScheme.primaryContainer.copy(alpha = 0.35f))
+                            .border(1.5.dp, colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                            .pointerInput(masterGesture, gestureSensitivity) {
+                                if (!masterGesture) return@pointerInput
+                                detectDragGestures(
+                                    onDragStart = {
+                                        totalDragX = 0f
+                                        totalDragY = 0f
+                                        gestureTriggeredInCurrentDrag = false
+                                    },
+                                    onDragEnd = {
+                                        totalDragX = 0f
+                                        totalDragY = 0f
+                                        gestureTriggeredInCurrentDrag = false
+                                    },
+                                    onDragCancel = {
+                                        totalDragX = 0f
+                                        totalDragY = 0f
+                                        gestureTriggeredInCurrentDrag = false
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        if (gestureTriggeredInCurrentDrag) return@detectDragGestures
+
+                                        totalDragX += dragAmount.x
+                                        totalDragY += dragAmount.y
+
+                                        val absX = kotlin.math.abs(totalDragX)
+                                        val absY = kotlin.math.abs(totalDragY)
+                                        val threshold = gestureSensitivity
+
+                                        if (absY > threshold && absY > absX * 1.3f) {
+                                            if (totalDragY > 0) {
+                                                // Swipe DOWN
+                                                gestureTestFeedback = "✓ पहचाना: ⬇️ स्वाइप डाउन (Delivered)"
+                                                if (gestureSound) soundManager.playPreview(SoundEvent.DELIVERED)
+                                                if (gestureHaptic) soundManager.vibrate(40)
+                                            } else {
+                                                // Swipe UP
+                                                gestureTestFeedback = "✓ पहचाना: ⬆️ स्वाइप अप (Naaga)"
+                                                if (gestureSound) soundManager.playPreview(SoundEvent.NAGA)
+                                                if (gestureHaptic) soundManager.vibrate(40)
+                                            }
+                                            gestureTriggeredInCurrentDrag = true
+                                        } else if (absX > threshold && absX > absY * 1.3f) {
+                                            if (totalDragX > 0) {
+                                                // Swipe RIGHT
+                                                gestureTestFeedback = "✓ पहचाना: ➡️ स्वाइप राइट (Next Customer)"
+                                                if (gestureSound) soundManager.playPreview(SoundEvent.NEXT_CUSTOMER)
+                                                if (gestureHaptic) soundManager.vibrate(30)
+                                            } else {
+                                                // Swipe LEFT
+                                                gestureTestFeedback = "✓ पहचाना: ⬅️ स्वाइप लेफ्ट (Prev Customer)"
+                                                if (gestureSound) soundManager.playPreview(SoundEvent.PREV_CUSTOMER)
+                                                if (gestureHaptic) soundManager.vibrate(30)
+                                            }
+                                            gestureTriggeredInCurrentDrag = true
+                                        }
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.TouchApp, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = gestureTestFeedback,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary
+                            )
+                            Text(
+                                text = "इस बॉक्स के अंदर किसी भी दिशा में स्वाइप करें",
+                                fontSize = 10.5.sp,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
@@ -1206,7 +2280,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                                     color = colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "Debian 13 Tailscale • MiniCPM-V 1B",
+                                    text = "Debian 13 Tailscale • Qwen2.5-3B-Instruct",
                                     fontSize = 11.sp,
                                     color = colorScheme.onSurfaceVariant
                                 )
@@ -1435,7 +2509,7 @@ fun BackupScreen(viewModel: BackupViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Shahbuddin Dairy V8.0",
+                    text = "Shahbuddin Dairy V8.9",
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = colorScheme.primary
@@ -1474,6 +2548,9 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         Text("• Customers: ${res.stats.customers}", fontSize = 12.sp)
                         Text("• Milk Deliveries: ${res.stats.deliveries} (%.2f L)".format(res.stats.totalLiters), fontSize = 12.sp)
                         Text("• Payments: ${res.stats.payments} (${res.stats.onlinePaymentsCount} Online)", fontSize = 12.sp)
+                        if (res.stats.mediaCount > 0) {
+                            Text("• Attached Photos/Audio: ${res.stats.mediaCount} files", fontSize = 12.sp, color = colorScheme.primary)
+                        }
                     }
                 }
             },
@@ -1482,11 +2559,11 @@ fun BackupScreen(viewModel: BackupViewModel) {
                     Button(
                         onClick = {
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/json"
+                                type = if (res.fileName?.endsWith(".zip") == true) "application/zip" else "application/json"
                                 putExtra(Intent.EXTRA_STREAM, res.uri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Backup File"))
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Backup Archive"))
                             viewModel.clearBackupResult()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
@@ -1530,6 +2607,9 @@ fun BackupScreen(viewModel: BackupViewModel) {
                         Text("• Payments: ${stats.payments} (Total: ₹%,d)".format(stats.totalPaid.toLong()), fontSize = 12.5.sp)
                         if (stats.routesCount > 0) Text("• Routes: ${stats.routesCount}", fontSize = 12.5.sp)
                         if (stats.notesCount > 0) Text("• Customer Notes: ${stats.notesCount}", fontSize = 12.5.sp)
+                        if (valRes.isZipArchive && valRes.mediaFilesCount > 0) {
+                            Text("• Attached Photos/Audio: ${valRes.mediaFilesCount} files", fontSize = 12.5.sp, color = colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             "An automatic safety snapshot of current data will be saved before restoring.",

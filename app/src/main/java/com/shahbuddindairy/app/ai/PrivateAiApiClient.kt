@@ -66,10 +66,12 @@ class PrivateAiApiClient(private val context: Context) {
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_AI_ENABLED = "ai_enabled"
         private const val KEY_CONFIGURED_MODEL = "configured_model"
+        private const val KEY_API_KEY = "api_key"
 
         // Default Private Tailscale Endpoint
         const val DEFAULT_SERVER_URL = "https://fahad.tail2abf56.ts.net"
-        const val DEFAULT_MODEL = "openbmb/MiniCPM-V-4.7-1B-gguf:Q4_K_M"
+        const val DEFAULT_MODEL = "qwen2.5-3b-instruct"
+        const val DEFAULT_API_KEY = "1de55054c8c3f472f7dd5c39ee2bc78800d2d294484721d8"
 
         const val TAILSCALE_IP = "100.124.180.67"
         const val TAILSCALE_HOST = "fahad.tail2abf56.ts.net"
@@ -120,6 +122,12 @@ class PrivateAiApiClient(private val context: Context) {
             prefs.edit().putString(KEY_CONFIGURED_MODEL, value.trim()).apply()
         }
 
+    var apiKey: String
+        get() = prefs.getString(KEY_API_KEY, DEFAULT_API_KEY) ?: DEFAULT_API_KEY
+        set(value) {
+            prefs.edit().putString(KEY_API_KEY, value.trim()).apply()
+        }
+
     /**
      * Executes an HTTP request to the Tailscale AI server using direct IP connection and SNI handshake.
      */
@@ -163,6 +171,9 @@ class PrivateAiApiClient(private val context: Context) {
         reqBuilder.append("Accept: application/json\r\n")
         reqBuilder.append("Accept-Encoding: identity\r\n")
         reqBuilder.append("Connection: close\r\n")
+        if (apiKey.isNotBlank()) {
+            reqBuilder.append("Authorization: Bearer $apiKey\r\n")
+        }
 
         if (bodyJson != null) {
             val bytes = bodyJson.toByteArray(Charsets.UTF_8)
@@ -244,6 +255,9 @@ class PrivateAiApiClient(private val context: Context) {
             conn.readTimeout = timeoutMs
             conn.requestMethod = method
             conn.setRequestProperty("Accept", "application/json")
+            if (apiKey.isNotBlank()) {
+                conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            }
             if (bodyJson != null) {
                 conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                 conn.doOutput = true

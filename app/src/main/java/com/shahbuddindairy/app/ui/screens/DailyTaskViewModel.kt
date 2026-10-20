@@ -10,6 +10,7 @@ import com.shahbuddindairy.app.data.model.DeliveryEntity
 import com.shahbuddindairy.app.data.model.PaymentEntity
 import com.shahbuddindairy.app.data.model.RouteEntity
 import com.shahbuddindairy.app.domain.CalculationEngine
+import com.shahbuddindairy.app.pdf.PdfReportGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -110,10 +111,20 @@ data class DailyTaskUiState(
     val routeProgress: RouteProgressInfo? = null,
     val motivationText: String = "",
     val showMotivation: Boolean = true,
-    val loadedCanLiters: Double = 80.0,
-    val remainingCanLiters: Double = 80.0,
+    val loadedCanLiters: Double = 85.0,
+    val remainingCanLiters: Double = 85.0,
     val isCanShortageWarning: Boolean = false,
-    val tomorrowDemand: com.shahbuddindairy.app.ai.DemandForecast? = null
+    val tomorrowDemand: com.shahbuddindairy.app.ai.DemandForecast? = null,
+    val buffaloOpening: Double = 75.0,
+    val buffaloDelivered: Double = 0.0,
+    val buffaloRemaining: Double = 75.0,
+    val cowOpening: Double = 10.0,
+    val cowDelivered: Double = 0.0,
+    val cowRemaining: Double = 10.0,
+    val rate70Liters: Double = 0.0,
+    val rate65Liters: Double = 0.0,
+    val rate60Liters: Double = 0.0,
+    val rateOtherLiters: Double = 0.0
 )
 
 class DailyTaskViewModel(application: Application) : AndroidViewModel(application) {
@@ -207,7 +218,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         val totalMarketDue: Double,
         val totalPbsPending: Double,
         val routes: List<RouteEntity>,
-        val allDeliveries: List<DeliveryEntity> = emptyList()
+        val allDeliveries: List<DeliveryEntity> = emptyList(),
+        val buffaloOpening: Double = 75.0,
+        val cowOpening: Double = 10.0
     )
 
     // Cached base data flow: Queries DB ONLY when date, customers, pbs, or mutation trigger changes
@@ -267,6 +280,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             }
 
+            val bufOpening = repository.getSetting("inv_opening_buffalo_$date")?.toDoubleOrNull() ?: 75.0
+            val cowOpening = repository.getSetting("inv_opening_cow_$date")?.toDoubleOrNull() ?: 10.0
+
             BaseDailyData(
                 date = date,
                 customers = customers,
@@ -275,7 +291,9 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 totalMarketDue = marketDue,
                 totalPbsPending = sumPbs,
                 routes = allRoutes,
-                allDeliveries = allDeliveries
+                allDeliveries = allDeliveries,
+                buffaloOpening = bufOpening,
+                cowOpening = cowOpening
             )
         }
     }
@@ -496,9 +514,21 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
 
         val tomorrowStr = CalculationEngine.nextDayStr(base.date)
         val tomorrowForecast = com.shahbuddindairy.app.ai.DairyAiPredictor.forecastTomorrowDemand(base.customers, base.allDeliveries, tomorrowStr)
-        val loadedCan = 80.0
-        val remainingCan = (loadedCan - sumMilk).coerceAtLeast(0.0)
-        val isShortage = remainingCan < 10.0 && pending > 0
+        val bufOpening = base.buffaloOpening
+        val cowOpening = base.cowOpening
+        val todayDelivs = base.todayDeliveries.values.filter { !it.isVoid && it.status == "delivered" }
+        val bufDeliv = CalculationEngine.round2(todayDelivs.filter { it.milkType != "गाय" }.sumOf { it.liters })
+        val cowDeliv = CalculationEngine.round2(todayDelivs.filter { it.milkType == "गाय" }.sumOf { it.liters })
+        val bufRem = CalculationEngine.round2((bufOpening - bufDeliv).coerceAtLeast(0.0))
+        val cowRem = CalculationEngine.round2((cowOpening - cowDeliv).coerceAtLeast(0.0))
+        val loadedCan = CalculationEngine.round2(bufOpening + cowOpening)
+        val remainingCan = CalculationEngine.round2(bufRem + cowRem)
+        val isShortage = (bufRem < 5.0 || cowRem < 2.0 || remainingCan < 10.0) && pending > 0
+
+        val r70 = CalculationEngine.round2(todayDelivs.filter { it.rate == 70.0 }.sumOf { it.liters })
+        val r65 = CalculationEngine.round2(todayDelivs.filter { it.rate == 65.0 }.sumOf { it.liters })
+        val r60 = CalculationEngine.round2(todayDelivs.filter { it.rate == 60.0 }.sumOf { it.liters })
+        val rOther = CalculationEngine.round2(todayDelivs.filter { it.rate !in listOf(70.0, 65.0, 60.0) }.sumOf { it.liters })
 
         DailyTaskUiState(
             selectedDate = base.date,
@@ -521,15 +551,37 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             motivationText = motiv,
             showMotivation = showMotiv,
             loadedCanLiters = loadedCan,
-            remainingCanLiters = CalculationEngine.round2(remainingCan),
+            remainingCanLiters = remainingCan,
             isCanShortageWarning = isShortage,
-            tomorrowDemand = tomorrowForecast
+            tomorrowDemand = tomorrowForecast,
+            buffaloOpening = bufOpening,
+            buffaloDelivered = bufDeliv,
+            buffaloRemaining = bufRem,
+            cowOpening = cowOpening,
+            cowDelivered = cowDeliv,
+            cowRemaining = cowRem,
+            rate70Liters = r70,
+            rate65Liters = r65,
+            rate60Liters = r60,
+            rateOtherLiters = rOther
         )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
         DailyTaskUiState(isLoading = true)
     )
+
+    fun setOpeningInventory(buffalo: Double, cow: Double, onSuccess: (() -> Unit)? = null) {
+        viewModelScope.launch {
+            val date = _selectedDate.value
+            repository.setSetting("inv_opening_buffalo_$date", "%.2f".format(Locale.US, buffalo))
+            repository.setSetting("inv_opening_cow_$date", "%.2f".format(Locale.US, cow))
+            val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
+            repository.setSetting("inv_audit_${date}_${System.currentTimeMillis()}", "Set opening: Buffalo=${buffalo}L, Cow=${cow}L at $nowStr")
+            _refreshTrigger.value++
+            onSuccess?.invoke()
+        }
+    }
 
     fun selectRouteFilter(routeId: String) {
         _selectedRouteId.value = routeId
@@ -1230,6 +1282,29 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
 
             _refreshTrigger.value++
             onSuccess?.invoke()
+        }
+    }
+
+    fun generateDailyReportPdf(
+        context: android.content.Context,
+        onResult: (PdfReportGenerator.PdfResult) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val date = _selectedDate.value
+                val customers = repository.getAllCustomersDirect()
+                val deliveries = repository.getAllDeliveriesDirect()
+                val payments = repository.getAllPaymentsDirect()
+                val pbsMap = repository.getAllPbsMap()
+                val res = PdfReportGenerator.generateDailyReportPdf(context, date, customers, deliveries, payments, pbsMap)
+                withContext(Dispatchers.Main) {
+                    onResult(res)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(PdfReportGenerator.PdfResult(false, "त्रुटि: ${e.message}"))
+                }
+            }
         }
     }
 }

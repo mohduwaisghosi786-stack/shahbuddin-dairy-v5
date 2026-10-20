@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -198,6 +199,8 @@ fun DailyTaskScreen(
     var showQuickCustomerDialog by remember { mutableStateOf(false) }
     var customerForNotes by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var showRouteManagerDialog by remember { mutableStateOf(false) }
+    var showInventoryDialog by remember { mutableStateOf(false) }
+    var showDailyClosingDialog by remember { mutableStateOf(false) }
 
     val savedRunnerCustomerId by viewModel.activeRunnerCustomerId.collectAsState()
     LaunchedEffect(savedRunnerCustomerId) {
@@ -469,7 +472,7 @@ fun DailyTaskScreen(
             }
         }
 
-        // 2. LIVE MILK CAN TRACKER STRIP
+        // 2. LIVE SMART MILK CAN & INVENTORY TRACKER STRIP (Clickable for full breakdown & opening stock edit)
         Surface(
             shape = RoundedCornerShape(8.dp),
             color = colorScheme.surfaceContainer,
@@ -477,6 +480,10 @@ fun DailyTaskScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 3.dp)
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showInventoryDialog = true
+                }
         ) {
             Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
                 Row(
@@ -491,28 +498,43 @@ fun DailyTaskScreen(
                             fontWeight = FontWeight.Bold,
                             color = if (uiState.isCanShortageWarning) Color(0xFFDC2626) else Color(0xFF1E40AF)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "वितरित: %.1fL".format(uiState.totalMilk),
-                            fontSize = 11.sp,
+                            text = "(भैंस: %.0fL • गाय: %.0fL)".format(uiState.buffaloRemaining, uiState.cowRemaining),
+                            fontSize = 10.sp,
                             color = colorScheme.onSurfaceVariant
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val totalCards = uiState.customerCards.size
-                        Text(
-                            text = "${uiState.completedCount}/$totalCards पूर्ण",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF15803D)
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF25D366),
+                            modifier = Modifier.clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showDailyClosingDialog = true
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = "मालिक रिपोर्ट", tint = Color.White, modifier = Modifier.size(11.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text("🌙 बंद", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+                        }
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "₹%,d".format(uiState.totalCashCollected.toLong()),
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF15803D)
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFDCFCE7),
+                            border = BorderStroke(0.5.dp, Color(0xFF86EFAC)),
+                            modifier = Modifier.clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                showInventoryDialog = true
+                            }
+                        ) {
+                            Text("स्टॉक ⚙", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(3.dp))
@@ -594,33 +616,6 @@ fun DailyTaskScreen(
                         Icon(Icons.Default.Mic, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(12.dp))
                         Spacer(modifier = Modifier.width(3.dp))
                         Text("मुंशी AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                    }
-                }
-                Spacer(modifier = Modifier.width(5.dp))
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF25D366),
-                    modifier = Modifier.clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        WhatsAppReportManager.sendNightlyClosingSummary(
-                            context = context,
-                            dateStr = CalculationEngine.formatDateDisplay(uiState.selectedDate),
-                            totalMilkLiters = uiState.totalMilk,
-                            totalCashCollected = uiState.totalCashCollected,
-                            completedDeliveries = uiState.completedCount,
-                            totalCustomers = uiState.customerCards.size,
-                            nagaCount = uiState.nagaCount,
-                            alternateOffCount = uiState.customerCards.count { it.isAlternateOff }
-                        )
-                    }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = "मालिक रिपोर्ट", tint = Color.White, modifier = Modifier.size(11.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("🌙 बंद", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
@@ -1305,18 +1300,68 @@ fun DailyTaskScreen(
         )
     }
 
+    // SMART MILK INVENTORY DIALOG (V9.0)
+    if (showInventoryDialog) {
+        SmartMilkInventoryDialog(
+            uiState = uiState,
+            onDismiss = { showInventoryDialog = false },
+            onSaveOpening = { buffalo, cow ->
+                viewModel.setOpeningInventory(buffalo, cow) {
+                    showInventoryDialog = false
+                }
+            }
+        )
+    }
+
+    // DAILY CLOSING SUMMARY DIALOG (V9.0)
+    if (showDailyClosingDialog) {
+        DailyClosingSummaryDialog(
+            uiState = uiState,
+            onDismiss = { showDailyClosingDialog = false },
+            onShareWhatsApp = {
+                WhatsAppReportManager.sendNightlyClosingSummary(
+                    context = context,
+                    dateStr = CalculationEngine.formatDateDisplay(uiState.selectedDate),
+                    totalMilkLiters = uiState.totalMilk,
+                    totalCashCollected = uiState.totalCashCollected,
+                    completedDeliveries = uiState.completedCount,
+                    totalCustomers = uiState.allActiveCustomers.size,
+                    nagaCount = uiState.nagaCount,
+                    alternateOffCount = 0,
+                    totalOnlineCollected = 0.0,
+                    totalBilled = uiState.totalBill,
+                    totalMarketDue = uiState.totalMarketDue,
+                    totalAdvance = 0.0
+                )
+            },
+            onSharePdf = {
+                viewModel.generateDailyReportPdf(context) { pdfRes ->
+                    if (pdfRes.success && pdfRes.uri != null) {
+                        WhatsAppReportManager.sharePdfViaWhatsApp(
+                            context = context,
+                            pdfUri = pdfRes.uri,
+                            caption = "🥛 शाहबुद्दीन डेयरी — दैनिक रिपोर्ट (${CalculationEngine.formatDateDisplay(uiState.selectedDate)})"
+                        )
+                    } else {
+                        android.widget.Toast.makeText(context, pdfRes.message, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
+
     // FLOATING SCRUBBER MAGNIFICATION BUBBLE (PANEL 1)
     if (scrubberBubbleText != null) {
         Box(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.CenterEnd
         ) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = Color(0xFF1E293B),
                 shadowElevation = 16.dp,
                 border = BorderStroke(2.dp, Color(0xFF60A5FA)),
-                modifier = Modifier.padding(24.dp)
+                modifier = Modifier.padding(end = 36.dp)
             ) {
                 Text(
                     text = scrubberBubbleText ?: "",
@@ -1329,6 +1374,273 @@ fun DailyTaskScreen(
             }
         }
     }
+}
+
+@Composable
+fun SmartMilkInventoryDialog(
+    uiState: DailyTaskUiState,
+    onDismiss: () -> Unit,
+    onSaveOpening: (Double, Double) -> Unit
+) {
+    var editMode by remember { mutableStateOf(false) }
+    var buffaloInput by remember { mutableStateOf(uiState.buffaloOpening.toString()) }
+    var cowInput by remember { mutableStateOf(uiState.cowOpening.toString()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🥛 स्मार्ट दूध स्टॉक (Live Inventory)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (uiState.isCanShortageWarning) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFFEE2E2),
+                        border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⚠️", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "स्टॉक चेतावनी: शेष दूध कम है और ${uiState.pendingCount} ग्राहक अभी बाकी हैं!",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFFB91C1C),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("भैंस का दूध (Buffalo Milk)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("शुरुआती (Opening):", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${uiState.buffaloOpening} L", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("वितरित (Delivered):", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${uiState.buffaloDelivered} L", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("शेष (Remaining):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("${uiState.buffaloRemaining} L", fontSize = 13.sp, fontWeight = FontWeight.Black, color = if (uiState.buffaloRemaining < 5.0) Color(0xFFDC2626) else MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("गाय का दूध (Cow Milk)", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFB45309))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("शुरुआती (Opening):", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${uiState.cowOpening} L", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("वितरित (Delivered):", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("${uiState.cowDelivered} L", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF15803D))
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("शेष (Remaining):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("${uiState.cowRemaining} L", fontSize = 13.sp, fontWeight = FontWeight.Black, color = if (uiState.cowRemaining < 2.0) Color(0xFFDC2626) else Color(0xFFB45309))
+                        }
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("दर अनुसार बिक्री (Rate Breakdown)", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("₹70/L दर:", fontSize = 11.sp)
+                            Text("${uiState.rate70Liters} L", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("₹65/L दर:", fontSize = 11.sp)
+                            Text("${uiState.rate65Liters} L", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("₹60/L दर:", fontSize = 11.sp)
+                            Text("${uiState.rate60Liters} L", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        if (uiState.rateOtherLiters > 0) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("अन्य दरें:", fontSize = 11.sp)
+                                Text("${uiState.rateOtherLiters} L", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
+                if (editMode) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("कैन स्टॉक सेट करें (Set Opening Cans)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            OutlinedTextField(
+                                value = buffaloInput,
+                                onValueChange = { buffaloInput = it },
+                                label = { Text("भैंस का दूध (Liters)") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = cowInput,
+                                onValueChange = { cowInput = it },
+                                label = { Text("गाय का दूध (Liters)") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Button(
+                                onClick = {
+                                    val b = buffaloInput.toDoubleOrNull() ?: uiState.buffaloOpening
+                                    val c = cowInput.toDoubleOrNull() ?: uiState.cowOpening
+                                    onSaveOpening(b, c)
+                                    editMode = false
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("स्टॉक सुरक्षित करें (Save)")
+                            }
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { editMode = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("शुरुआती स्टॉक बदलें (Edit Opening)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("बंद करें (OK)")
+            }
+        }
+    )
+}
+
+@Composable
+fun DailyClosingSummaryDialog(
+    uiState: DailyTaskUiState,
+    onDismiss: () -> Unit,
+    onShareWhatsApp: () -> Unit,
+    onSharePdf: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🌙 रूट समापन एवं हिसाब (Daily Closing)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("तारीख: ${CalculationEngine.formatDateDisplay(uiState.selectedDate)}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("कुल ग्राहक: ${uiState.allActiveCustomers.size} | पूर्ण: ${uiState.completedCount} | नागा: ${uiState.nagaCount} | बाकी: ${uiState.pendingCount}", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("कुल दूध वितरण:", fontSize = 12.sp)
+                            Text("${uiState.totalMilk} L", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("कुल बिल (Total Bill):", fontSize = 12.sp)
+                            Text(CalculationEngine.formatMoney(uiState.totalBill), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("कुल नकद वसूली (Cash):", fontSize = 12.sp)
+                            Text(CalculationEngine.formatMoney(uiState.totalCashCollected), fontWeight = FontWeight.Black, fontSize = 13.sp, color = Color(0xFF15803D))
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("कुल बाजार उधारी (Market Due):", fontSize = 12.sp)
+                            Text(CalculationEngine.formatMoney(uiState.totalMarketDue), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFFDC2626))
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        onShareWhatsApp()
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("मालिक को WhatsApp भेजें (9258262340)", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        onSharePdf()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Daily Statement PDF शेयर करें")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("बंद करें")
+            }
+        }
+    )
 }
 
 
@@ -2431,6 +2743,7 @@ fun DailyTaskRunnerCard(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
 
     // Gesture tracking state
     var totalDragX by remember(item.customer.id) { mutableFloatStateOf(0f) }
@@ -2472,13 +2785,43 @@ fun DailyTaskRunnerCard(
                         totalDragY += dragAmount.y
                     },
                     onDragEnd = {
+                        val gestureManager = com.shahbuddindairy.app.gesture.GestureSettingsManager.getInstance(context)
+                        if (!gestureManager.isMasterGestureEnabled) return@detectDragGestures
+                        val soundMgr = com.shahbuddindairy.app.audio.SoundEffectManager.getInstance(context)
+
                         val absX = kotlin.math.abs(totalDragX)
                         val absY = kotlin.math.abs(totalDragY)
-                        val threshold = 90f
+                        val threshold = gestureManager.sensitivityThresholdPx
                         if (absX > absY && absX > threshold) {
-                            if (totalDragX < 0) onNext() else onPrev()
+                            if (totalDragX > 0) {
+                                // Swipe RIGHT -> Next Customer
+                                if (gestureManager.isSwipeRightNextEnabled) {
+                                    if (gestureManager.isGestureHapticEnabled) soundMgr.vibrate(30)
+                                    if (gestureManager.isGestureSoundEnabled) soundMgr.play(com.shahbuddindairy.app.audio.SoundEvent.NEXT_CUSTOMER)
+                                    onNext()
+                                }
+                            } else {
+                                // Swipe LEFT -> Previous Customer
+                                if (gestureManager.isSwipeLeftPrevEnabled) {
+                                    if (gestureManager.isGestureHapticEnabled) soundMgr.vibrate(30)
+                                    if (gestureManager.isGestureSoundEnabled) soundMgr.play(com.shahbuddindairy.app.audio.SoundEvent.PREV_CUSTOMER)
+                                    onPrev()
+                                }
+                            }
                         } else if (absY >= absX && absY > threshold) {
-                            if (totalDragY > 0) onSaveClicked() else onNagaClicked()
+                            if (totalDragY > 0) {
+                                // Swipe DOWN -> Delivered & Save
+                                if (gestureManager.isSwipeDownDeliverEnabled) {
+                                    if (gestureManager.isGestureHapticEnabled) soundMgr.vibrate(50)
+                                    onSaveClicked()
+                                }
+                            } else {
+                                // Swipe UP -> Naaga
+                                if (gestureManager.isSwipeUpNaagaEnabled) {
+                                    if (gestureManager.isGestureHapticEnabled) soundMgr.vibrate(60)
+                                    onNagaClicked()
+                                }
+                            }
                         }
                     }
                 )
@@ -2493,10 +2836,13 @@ fun DailyTaskRunnerCard(
             border = BorderStroke(1.5.dp, colorScheme.outlineVariant),
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
+            val cardScrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+                    .verticalScroll(cardScrollState)
+                    .imePadding()
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 // 1. CUSTOMER HEADER ROW
                 Row(
@@ -2742,19 +3088,31 @@ fun DailyTaskRunnerCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Quick Quantity Chips: 0.5L, 1L, 1.5L, 2L, 2.5L (Replaced 800g with 0.5L)
-                Row(
+                // 3.1 MAIN MILK QUANTITY PRESETS: 250ml (0.25L), 500ml (0.50L), 750ml (0.75L), 1L (1.00L), 1.5L (1.50L), 2L (2.00L)
+                val milkPresets = listOf(
+                    0.25 to "250 ml",
+                    0.50 to "500 ml",
+                    0.75 to "750 ml",
+                    1.00 to "1 L",
+                    1.50 to "1.5 L",
+                    2.00 to "2 L"
+                )
+                LazyRow(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    listOf(0.5 to "0.5L", 1.0 to "1L", 1.5 to "1.5L", 2.0 to "2L", 2.5 to "2.5L").forEach { (qPreset, qLabel) ->
-                        val isSelected = (item.currentMilkInput.toDoubleOrNull() ?: 0.0) == qPreset
+                    items(milkPresets) { (qPreset, qLabel) ->
+                        val currentQty = item.currentMilkInput.toDoubleOrNull() ?: item.customer.defaultLiters
+                        val isSelected = kotlin.math.abs(currentQty - qPreset) < 0.01
                         FilterChip(
                             selected = isSelected,
-                            onClick = { onQuantityChanged("%.2f".format(Locale.US, qPreset)) },
-                            label = { Text(qLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold) },
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onQuantityChanged("%.2f".format(Locale.US, qPreset))
+                            },
+                            label = { Text(qLabel, fontSize = 11.5.sp, fontWeight = FontWeight.Bold) },
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = colorScheme.primary,
+                                selectedContainerColor = Color(0xFF15803D),
                                 selectedLabelColor = Color.White
                             ),
                             shape = RoundedCornerShape(8.dp),
@@ -2885,58 +3243,105 @@ fun DailyTaskRunnerCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // 5. CASH RECEIVED ROW & QUICK PILLS (58dp height, zero vertical clipping)
+                // 5. SPEED CASH PAYMENT CONTROL
+                // Stepper [-₹10], Numeric Entry with Clear, [+₹10], and [Exact]
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val curr = item.currentCashInput.toDoubleOrNull() ?: 0.0
+                            val nextVal = (curr - 10.0).coerceAtLeast(0.0)
+                            onCashChanged(if (nextVal > 0) "%.0f".format(Locale.US, nextVal) else "")
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                        modifier = Modifier.width(42.dp).fillMaxHeight()
+                    ) {
+                        Text("-10", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    }
+
                     OutlinedTextField(
                         value = item.currentCashInput,
                         onValueChange = onCashChanged,
-                        placeholder = { Text("0", fontSize = 16.sp, color = colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                        placeholder = { Text("0", fontSize = 15.sp, color = colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                         label = { Text("नकद (₹)", fontSize = 10.sp) },
                         singleLine = true,
+                        trailingIcon = {
+                            if (item.currentCashInput.isNotBlank()) {
+                                IconButton(
+                                    onClick = { onCashChanged("") },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         textStyle = TextStyle(fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color(0xFF15803D)),
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1.15f).fillMaxHeight()
+                        modifier = Modifier.weight(1.2f).fillMaxHeight()
                     )
 
-                    // Quick pills: [₹50] [₹100] [₹200] [Exact]
-                    Row(
-                        modifier = Modifier.weight(1.9f).fillMaxHeight(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val curr = item.currentCashInput.toDoubleOrNull() ?: 0.0
+                            onCashChanged("%.0f".format(Locale.US, curr + 10.0))
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp),
+                        modifier = Modifier.width(42.dp).fillMaxHeight()
                     ) {
-                        listOf("50", "100", "200").forEach { pVal ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = colorScheme.surfaceContainerHigh,
-                                border = BorderStroke(1.dp, colorScheme.outlineVariant),
-                                modifier = Modifier.weight(1f).fillMaxHeight().clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onCashChanged(pVal)
-                                }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text("₹$pVal", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colorScheme.onSurface)
-                                }
-                            }
-                        }
+                        Text("+10", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                    }
 
-                        // [Exact / पूरा बिल]
+                    // [Exact / पूरा बिल]
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.5.dp, Color(0xFF93C5FD)),
+                        modifier = Modifier.width(60.dp).fillMaxHeight().clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            val exactAmt = (totalRequiredVal - existingAdvance).coerceAtLeast(0.0)
+                            onCashChanged("%.0f".format(Locale.US, exactAmt))
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("Exact", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color(0xFF1D4ED8))
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Default Cash Presets: ₹5, ₹10, ₹20, ₹50, ₹100, ₹200
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val cashPresets = listOf("5", "10", "20", "50", "100", "200")
+                    cashPresets.forEach { pVal ->
+                        val isCurrentVal = item.currentCashInput == pVal
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFEFF6FF),
-                            border = BorderStroke(1.5.dp, Color(0xFF93C5FD)),
-                            modifier = Modifier.weight(1.2f).fillMaxHeight().clickable {
+                            color = if (isCurrentVal) Color(0xFF15803D) else colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, if (isCurrentVal) Color(0xFF15803D) else colorScheme.outlineVariant),
+                            modifier = Modifier.weight(1f).height(32.dp).clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                val exactAmt = (totalRequiredVal - existingAdvance).coerceAtLeast(0.0)
-                                onCashChanged("%.0f".format(Locale.US, exactAmt))
+                                onCashChanged(pVal)
                             }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text("Exact", fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color(0xFF1D4ED8))
+                                Text(
+                                    "₹$pVal",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isCurrentVal) Color.White else colorScheme.onSurface
+                                )
                             }
                         }
                     }

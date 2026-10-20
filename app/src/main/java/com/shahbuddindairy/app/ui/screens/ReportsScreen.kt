@@ -88,6 +88,7 @@ fun ReportsScreen(
     onNavigateToCustomerKhata: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isGeneratingPdf by viewModel.isGeneratingPdf.collectAsState()
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
 
@@ -195,7 +196,8 @@ fun ReportsScreen(
             val matchesFilter = when (listFilter) {
                 "SERVED" -> r.isServed
                 "NAGA" -> r.isNaga
-                "PENDING" -> !r.isServed && !r.isNaga
+                "ALTDAY" -> r.isAltDay
+                "PENDING" -> !r.isServed && !r.isNaga && !r.isAltDay
                 else -> true
             }
             val matchesSearch = searchQuery.isBlank() ||
@@ -425,9 +427,10 @@ fun ReportsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Done: ${uiState.servedCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
-                                Text("Naaga: ${uiState.nagaCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = StatusRed)
-                                Text("Pend: ${uiState.pendingCount}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = StatusAmber)
+                                Text("Done: ${uiState.servedCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
+                                Text("Naaga: ${uiState.nagaCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StatusRed)
+                                Text("Alt: ${uiState.altDayCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0284C7))
+                                Text("Pend: ${uiState.pendingCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = StatusAmber)
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))
@@ -435,6 +438,7 @@ fun ReportsScreen(
                             val totalCust = (uiState.customerRows.size).coerceAtLeast(1).toFloat()
                             val doneW = (uiState.servedCount / totalCust).coerceIn(0f, 1f)
                             val nagaW = (uiState.nagaCount / totalCust).coerceIn(0f, 1f)
+                            val altW = (uiState.altDayCount / totalCust).coerceIn(0f, 1f)
                             val pendW = (uiState.pendingCount / totalCust).coerceIn(0f, 1f)
 
                             Row(
@@ -445,6 +449,7 @@ fun ReportsScreen(
                             ) {
                                 if (doneW > 0) Box(modifier = Modifier.weight(doneW).fillMaxHeight().background(colorScheme.primary))
                                 if (nagaW > 0) Box(modifier = Modifier.weight(nagaW).fillMaxHeight().background(StatusRed))
+                                if (altW > 0) Box(modifier = Modifier.weight(altW).fillMaxHeight().background(Color(0xFF0284C7)))
                                 if (pendW > 0) Box(modifier = Modifier.weight(pendW).fillMaxHeight().background(StatusAmber))
                             }
                         }
@@ -458,31 +463,98 @@ fun ReportsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OutlinedButton(
-                        onClick = { viewModel.exportDailyPdf(context) },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = colorScheme.primary),
-                        shape = RoundedCornerShape(10.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.primary),
+                    Card(
                         modifier = Modifier
                             .weight(1f)
-                            .height(42.dp)
+                            .clickable(enabled = !isGeneratingPdf) { viewModel.exportDailyPdf(context) },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
+                        border = androidx.compose.foundation.BorderStroke(1.2.dp, colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("DAILY PDF", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isGeneratingPdf) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colorScheme.primary
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(colorScheme.primaryContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.PictureAsPdf,
+                                        contentDescription = null,
+                                        tint = colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = if (isGeneratingPdf) "PDF बन रहा है..." else "PDF बनाएं",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    color = colorScheme.primary
+                                )
+                                Text(
+                                    text = "3-Page Statement",
+                                    fontSize = 10.sp,
+                                    color = colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
 
-                    Button(
-                        onClick = { showWhatsAppDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
-                        shape = RoundedCornerShape(10.dp),
+                    val ownerPhone = WhatsAppReportManager.getOwnerReportPhone(context)
+                    Card(
                         modifier = Modifier
-                            .weight(1.2f)
-                            .height(42.dp)
+                            .weight(1.25f)
+                            .clickable { showWhatsAppDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF25D366))
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text("WHATSAPP REPORT", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.25f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Send,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "WhatsApp भेजें",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.5.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "मालिक ($ownerPhone)",
+                                    fontSize = 10.sp,
+                                    color = Color.White.copy(alpha = 0.9f)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -526,6 +598,7 @@ fun ReportsScreen(
                         "ALL" to "All (${uiState.customerRows.size})",
                         "SERVED" to "Served (${uiState.servedCount})",
                         "NAGA" to "Naaga (${uiState.nagaCount})",
+                        "ALTDAY" to "Alt-Day (${uiState.altDayCount})",
                         "PENDING" to "Pending (${uiState.pendingCount})"
                     ).forEach { (key, label) ->
                         val isSel = listFilter == key
@@ -586,35 +659,99 @@ fun ReportsScreen(
         AlertDialog(
             onDismissRequest = { viewModel.clearPdfResult() },
             title = {
-                Text(
-                    text = if (res.success) "Daily Report PDF Ready ✓" else "PDF Generation Failed",
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.PictureAsPdf,
+                        contentDescription = null,
+                        tint = if (res.success) DairyGreenDark else StatusRed,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (res.success) "3-Page PDF तैयार है ✓" else "PDF त्रुटि",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
             },
-            text = { Text(res.message) },
+            text = {
+                Column {
+                    Text(
+                        text = if (res.success) "शाहबुद्दीन डेयरी का आधिकारिक 3-पेज दैनिक स्टेटमेंट सफलतापूर्वक बन गया है।" else res.message,
+                        fontSize = 13.sp,
+                        color = colorScheme.onSurface
+                    )
+                    if (res.success && res.file != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("📄 फ़ाइल: ${res.file.name}", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text("📊 साइज़: ${(res.file.length() / 1024).coerceAtLeast(1)} KB (A4 High-Res)", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                                Text("📑 सामग्री: Page 1: Dashboard • Page 2: Deliveries • Page 3: Accounts & Seal", fontSize = 11.sp, color = colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 if (res.success && res.uri != null) {
-                    Button(
-                        onClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/pdf"
-                                putExtra(Intent.EXTRA_STREAM, res.uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Daily Report PDF"))
-                            viewModel.clearPdfResult()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("SHARE PDF")
+                        // Open PDF
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        setDataAndType(res.uri, "application/pdf")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(viewIntent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "PDF व्यूअर नहीं मिला: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("खोलें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Share PDF via WhatsApp
+                        Button(
+                            onClick = {
+                                try {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/pdf"
+                                        putExtra(Intent.EXTRA_STREAM, res.uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        val ownerPhone = WhatsAppReportManager.getOwnerReportPhone(context)
+                                        putExtra(Intent.EXTRA_TEXT, "🥛 Shahbuddin Dairy — Daily Statement (${uiState.selectedDate})\nOwner: $ownerPhone")
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Daily Report PDF"))
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "शेयर विफल: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1.3f)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("शेयर करें", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { viewModel.clearPdfResult() }, shape = RoundedCornerShape(8.dp)) {
-                    Text("Close")
+                TextButton(onClick = { viewModel.clearPdfResult() }) {
+                    Text("बंद करें")
                 }
             },
             shape = RoundedCornerShape(14.dp),
@@ -715,44 +852,66 @@ fun DailyReportRowCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(8.dp)),
-        shape = RoundedCornerShape(8.dp),
+            .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp)),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = colorScheme.surface)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(horizontal = 12.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
-                        .background(colorScheme.primaryContainer),
+                        .background(
+                            when {
+                                row.isServed -> colorScheme.primaryContainer
+                                row.isNaga -> StatusRed.copy(alpha = 0.15f)
+                                row.isAltDay -> Color(0xFFE0F2FE)
+                                else -> StatusAmber.copy(alpha = 0.15f)
+                            }
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "#${row.customer.id}",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 10.5.sp,
-                        color = colorScheme.primary
+                        fontSize = 11.sp,
+                        color = when {
+                            row.isServed -> colorScheme.primary
+                            row.isNaga -> StatusRed
+                            row.isAltDay -> Color(0xFF0369A1)
+                            else -> StatusAmber
+                        }
                     )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = row.customer.name,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp,
+                            color = colorScheme.onSurface
+                        )
+                        if (row.deliveryTime.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = row.deliveryTime,
+                                fontSize = 10.sp,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Text(
-                        text = row.customer.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.5.sp,
-                        color = colorScheme.onSurface
-                    )
-                    Text(
-                        text = "${row.customer.mohalla} (${if (row.customer.billingType == "daily_cash") "Cash" else "Monthly"})",
+                        text = "${row.customer.mohalla} • ${if (row.customer.milkType == "cow") "गाय" else "भैंस"} (${if (row.customer.billingType == "daily_cash") "Cash" else "Monthly"})",
                         fontSize = 11.sp,
                         color = colorScheme.onSurfaceVariant
                     )
@@ -760,32 +919,75 @@ fun DailyReportRowCard(
             }
 
             Column(horizontalAlignment = Alignment.End) {
-                if (row.isServed) {
-                    Text(
-                        text = "%.2f L • ₹%.0f".format(row.liters, row.bill),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = colorScheme.primary
-                    )
-                    Text(
-                        text = "Cash: ₹%.0f".format(row.cashPaid),
-                        fontSize = 10.5.sp,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                } else if (row.isNaga) {
-                    Text(
-                        text = "NAAGA (नागा)",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.5.sp,
-                        color = StatusRed
-                    )
-                } else {
-                    Text(
-                        text = "Pending",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = StatusAmber
-                    )
+                when {
+                    row.isServed -> {
+                        Text(
+                            text = "%.2f L • ₹%.0f".format(row.liters, row.bill),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = colorScheme.primary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (row.cashPaid > 0) {
+                                Text(
+                                    text = "नकद: ₹%.0f".format(row.cashPaid),
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = DairyGreenDark
+                                )
+                            }
+                            if (row.netBalance != 0.0) {
+                                Text(
+                                    text = if (row.netBalance > 0) "बकाया: ₹%.0f".format(row.netBalance) else "एडवांस: ₹%.0f".format(-row.netBalance),
+                                    fontSize = 10.5.sp,
+                                    color = if (row.netBalance > 0) StatusRed else Color(0xFF2E7D32),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                    row.isNaga -> {
+                        Surface(
+                            color = StatusRed.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "NAAGA (नागा)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = StatusRed,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    row.isAltDay -> {
+                        Surface(
+                            color = Color(0xFFE0F2FE),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "ALT-DAY (आज बंद)",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = Color(0xFF0369A1),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    else -> {
+                        Surface(
+                            color = StatusAmber.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "PENDING (बाकी)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = StatusAmber,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

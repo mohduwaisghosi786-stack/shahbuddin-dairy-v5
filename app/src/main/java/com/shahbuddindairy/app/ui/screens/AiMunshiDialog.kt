@@ -642,10 +642,14 @@ fun AiMunshiDialog(
                                 isTestingConnection = true
                                 aiClient.serverUrl = tempUrl
                                 aiClient.isAiEnabled = tempEnabled
-                                val ok = aiClient.checkHealth()
+                                val res = aiClient.testConnection()
                                 isTestingConnection = false
-                                isServerOnline = ok
-                                testResult = if (ok) "✅ कनेक्टेड! MiniCPM-V-4.7-1B सक्रिय है।" else "❌ कनेक्ट नहीं हो सका (Tailscale चेक करें)"
+                                isServerOnline = res.isConnected
+                                testResult = if (res.isConnected) {
+                                    "✅ कनेक्टेड! मॉडल: ${res.modelName ?: "Qwen2.5-3B"} (${res.latencyMs}ms)"
+                                } else {
+                                    "❌ कनेक्ट नहीं हो सका: ${res.message}"
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),

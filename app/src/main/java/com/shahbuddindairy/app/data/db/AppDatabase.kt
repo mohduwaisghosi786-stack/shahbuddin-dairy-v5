@@ -28,7 +28,7 @@ import com.shahbuddindairy.app.data.model.RouteEntity
         CustomerNoteEntity::class,
         RouteEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -87,6 +87,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN priority TEXT NOT NULL DEFAULT 'Normal'")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN reminderDateTime TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN mediaUris TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN audioUri TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN audioDurationMs INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE customer_notes ADD COLUMN isCompleted INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -94,7 +107,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     // Strict: DO NOT USE fallbackToDestructiveMigration()
                     .build()
                 INSTANCE = instance

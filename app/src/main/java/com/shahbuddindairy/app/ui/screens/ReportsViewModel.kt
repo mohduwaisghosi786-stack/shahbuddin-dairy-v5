@@ -20,21 +20,37 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.Calendar
+
 enum class ReportPeriod {
     DAILY,
     WEEKLY,
     MONTHLY
 }
 
+data class PaymentItemRow(
+    val customerName: String,
+    val amount: Double,
+    val time: String = "",
+    val mode: String = "Cash"
+)
+
 data class DailyCustomerReportRow(
     val customer: CustomerEntity,
     val delivery: DeliveryEntity?,
     val isServed: Boolean,
     val isNaga: Boolean,
+    val isAltDay: Boolean = false,
     val liters: Double,
     val rate: Double,
     val bill: Double,
-    val cashPaid: Double
+    val cashPaid: Double,
+    val netBalance: Double = 0.0,
+    val deliveryTime: String = "",
+    val note: String = ""
 )
 
 data class ReportsUiState(
@@ -51,6 +67,19 @@ data class ReportsUiState(
     val servedCount: Int = 0,
     val nagaCount: Int = 0,
     val pendingCount: Int = 0,
+    val altDayCount: Int = 0,
+    val totalScheduledCount: Int = 0,
+    val totalMarketDue: Double = 0.0,
+    val totalCustomerAdvance: Double = 0.0,
+    val cashReceiptsList: List<PaymentItemRow> = emptyList(),
+    val onlineReceiptsList: List<PaymentItemRow> = emptyList(),
+    val topDueCustomers: List<Pair<String, Double>> = emptyList(),
+    val topAdvanceCustomers: List<Pair<String, Double>> = emptyList(),
+    val last7DaysVolume: List<Pair<String, Double>> = emptyList(),
+    val avgMilkPerCustomer: Double = 0.0,
+    val avgBillPerCustomer: Double = 0.0,
+    val highestMilkCustomer: Pair<String, Double>? = null,
+    val highestBillCustomer: Pair<String, Double>? = null,
     val customerRows: List<DailyCustomerReportRow> = emptyList(),
     val periodLabel: String = "Today",
     val trendVsYesterdayPercent: Double? = null,
@@ -71,6 +100,9 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
 
     private val _pdfResult = MutableStateFlow<PdfReportGenerator.PdfResult?>(null)
     val pdfResult = _pdfResult.asStateFlow()
+
+    private val _isGeneratingPdf = MutableStateFlow(false)
+    val isGeneratingPdf = _isGeneratingPdf.asStateFlow()
 
     val uiState: StateFlow<ReportsUiState> = combine(
         _selectedDate,
@@ -118,23 +150,49 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
+        val pbsMap = repository.getAllPbsMap()
+
         val delivMap = periodDeliveries.groupBy { it.customerId }
 
         var sumLiters = 0.0
         var buffalo = 0.0
         var cow = 0.0
         var sumBill = 0.0
-        var sumCash = 0.0
-        var sumOnline = 0.0
         var served = 0
         var naga = 0
         var pending = 0
+        var altDay = 0
+
+        val cashReceipts = mutableListOf<PaymentItemRow>()
+        val onlineReceipts = mutableListOf<PaymentItemRow>()
+
+        for (d in periodDeliveries) {
+            if (!d.isVoid) {
+                val cName = customers.find { it.id == d.customerId }?.name ?: "Customer #${d.customerId}"
+                val timeStr = d.deliveryTime.ifBlank { "12:00 pm" }
+                if (d.paidCash > 0) {
+                    cashReceipts.add(PaymentItemRow(customerName = cName, amount = d.paidCash, time = timeStr, mode = "Cash"))
+                }
+                if (d.paidOnline > 0) {
+                    onlineReceipts.add(PaymentItemRow(customerName = cName, amount = d.paidOnline, time = timeStr, mode = "Online"))
+                }
+            }
+        }
 
         for (p in periodPayments) {
             if (!p.isVoid) {
-                if (p.paymentMode == "Cash") sumCash += p.amount else sumOnline += p.amount
+                val cName = customers.find { it.id == p.customerId }?.name ?: "Customer #${p.customerId}"
+                val timeStr = p.createdAt.takeLast(8).ifBlank { "12:00 pm" }
+                if (p.paymentMode == "Cash") {
+                    cashReceipts.add(PaymentItemRow(customerName = cName, amount = p.amount, time = timeStr, mode = "Cash"))
+                } else {
+                    onlineReceipts.add(PaymentItemRow(customerName = cName, amount = p.amount, time = timeStr, mode = p.paymentMode))
+                }
             }
         }
+
+        val sumCash = cashReceipts.sumOf { it.amount }
+        val sumOnline = onlineReceipts.sumOf { it.amount }
 
         val rows = mutableListOf<DailyCustomerReportRow>()
 
@@ -144,7 +202,8 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             val custDelivs = delivMap[c.id] ?: emptyList()
             val latestD = custDelivs.lastOrNull()
             val isServed = custDelivs.any { !it.isVoid && it.status == "delivered" }
-            val isNaga = custDelivs.any { !it.isVoid && it.status == "skipped" }
+            val isNaga = custDelivs.any { !it.isVoid && (it.status == "skipped" || it.status == "naga") }
+            val isAltDay = if (period == ReportPeriod.DAILY) CalculationEngine.isOffDay(c, date) else false
 
             val custLiters = custDelivs.filter { !it.isVoid && it.status == "delivered" }.sumOf { it.liters }
             val custBill = custDelivs.filter { !it.isVoid && it.status == "delivered" }.sumOf { it.totalAmount }
@@ -158,13 +217,16 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
                     if (d.milkType == "गाय") cow += d.liters else buffalo += d.liters
                 }
                 sumBill += custBill
-                sumCash += custCash
-                sumOnline += custOnline
             } else if (isNaga) {
                 naga++
+            } else if (isAltDay) {
+                altDay++
             } else {
                 pending++
             }
+
+            val prevBal = CalculationEngine.calculateCustomerBalance(c.id, allDeliveries, allPayments)
+            val pbs = pbsMap[c.id] ?: 0.0
 
             rows.add(
                 DailyCustomerReportRow(
@@ -172,10 +234,14 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
                     delivery = latestD,
                     isServed = isServed,
                     isNaga = isNaga,
+                    isAltDay = isAltDay,
                     liters = custLiters,
                     rate = latestD?.rate ?: c.ratePerLiter,
                     bill = custBill,
-                    cashPaid = custCash + custOnline
+                    cashPaid = custCash + custOnline,
+                    netBalance = CalculationEngine.round2(prevBal + pbs),
+                    deliveryTime = latestD?.deliveryTime ?: "",
+                    note = c.note
                 )
             )
         }
@@ -191,6 +257,47 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
                 CalculationEngine.round2(((sumLiters - yLiters) / yLiters) * 100.0)
             } else null
         } else null
+
+        // Top Dues & Advances
+        var totalMarketDue = 0.0
+        var totalCustomerAdvance = 0.0
+        val dueList = mutableListOf<Pair<String, Double>>()
+        val advanceList = mutableListOf<Pair<String, Double>>()
+
+        val activeCustomers = customers.filter { it.isActive == 1 && it.isArchived == 0 }
+        for (c in activeCustomers) {
+            val net = CalculationEngine.calculateCustomerBalance(c.id, allDeliveries, allPayments)
+            val pbs = pbsMap[c.id] ?: 0.0
+            val totalBal = CalculationEngine.round2(net + pbs)
+            if (totalBal > 0) {
+                totalMarketDue += totalBal
+                dueList.add(c.name to totalBal)
+            } else if (totalBal < 0) {
+                totalCustomerAdvance += (-totalBal)
+                advanceList.add(c.name to (-totalBal))
+            }
+        }
+        dueList.sortByDescending { it.second }
+        advanceList.sortByDescending { it.second }
+
+        // Last 7 Days Volume Trend
+        val last7Days = (0..6).reversed().map { daysAgo ->
+            val dStr = CalculationEngine.prevDayStr(date, daysAgo)
+            val v = allDeliveries.filter { it.date == dStr && !it.isVoid && it.status == "delivered" }.sumOf { it.liters }
+            val dispDate = try {
+                val sdfIn = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val sdfOut = SimpleDateFormat("dd MMM", Locale.US)
+                sdfOut.format(sdfIn.parse(dStr) ?: Date())
+            } catch (e: Exception) {
+                dStr.takeLast(5)
+            }
+            dispDate to CalculationEngine.round2(v)
+        }
+
+        val avgMilk = if (served > 0) CalculationEngine.round2(sumLiters / served) else 0.0
+        val avgBill = if (served > 0) CalculationEngine.round2(sumBill / served) else 0.0
+        val highestMilk = rows.filter { it.isServed }.maxByOrNull { it.liters }?.let { it.customer.name to it.liters }
+        val highestBill = rows.filter { it.isServed }.maxByOrNull { it.bill }?.let { it.customer.name to it.bill }
 
         val pLabel = when (period) {
             ReportPeriod.DAILY -> "Daily (${CalculationEngine.formatDateDisplay(date)})"
@@ -245,6 +352,19 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             servedCount = served,
             nagaCount = naga,
             pendingCount = pending,
+            altDayCount = altDay,
+            totalScheduledCount = served + naga + pending,
+            totalMarketDue = CalculationEngine.round2(totalMarketDue),
+            totalCustomerAdvance = CalculationEngine.round2(totalCustomerAdvance),
+            cashReceiptsList = cashReceipts,
+            onlineReceiptsList = onlineReceipts,
+            topDueCustomers = dueList.take(7),
+            topAdvanceCustomers = advanceList.take(7),
+            last7DaysVolume = last7Days,
+            avgMilkPerCustomer = avgMilk,
+            avgBillPerCustomer = avgBill,
+            highestMilkCustomer = highestMilk,
+            highestBillCustomer = highestBill,
             customerRows = rows,
             periodLabel = pLabel,
             trendVsYesterdayPercent = trend,
@@ -273,12 +393,20 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
 
     fun exportDailyPdf(context: Context) {
         viewModelScope.launch(Dispatchers.IO) {
-            val date = _selectedDate.value
-            val customers = repository.getAllCustomersDirect()
-            val deliveries = repository.getAllDeliveriesDirect()
-            val payments = repository.getAllPaymentsDirect()
-            val res = PdfReportGenerator.generateDailyReportPdf(context, date, customers, deliveries, payments)
-            _pdfResult.value = res
+            _isGeneratingPdf.value = true
+            try {
+                val date = _selectedDate.value
+                val customers = repository.getAllCustomersDirect()
+                val deliveries = repository.getAllDeliveriesDirect()
+                val payments = repository.getAllPaymentsDirect()
+                val pbsMap = repository.getAllPbsMap()
+                val res = PdfReportGenerator.generateDailyReportPdf(context, date, customers, deliveries, payments, pbsMap)
+                _pdfResult.value = res
+            } catch (e: Exception) {
+                _pdfResult.value = PdfReportGenerator.PdfResult(false, "त्रुटि: ${e.message}", null, null)
+            } finally {
+                _isGeneratingPdf.value = false
+            }
         }
     }
 
@@ -291,50 +419,114 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
     }
 
     companion object {
+        fun getHindiDayOfWeek(dateStr: String): String {
+            return try {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val d = sdf.parse(dateStr) ?: return ""
+                val cal = Calendar.getInstance().apply { time = d }
+                when (cal.get(Calendar.DAY_OF_WEEK)) {
+                    Calendar.SUNDAY -> "रविवार"
+                    Calendar.MONDAY -> "सोमवार"
+                    Calendar.TUESDAY -> "मंगलवार"
+                    Calendar.WEDNESDAY -> "बुधवार"
+                    Calendar.THURSDAY -> "गुरुवार"
+                    Calendar.FRIDAY -> "शुक्रवार"
+                    Calendar.SATURDAY -> "शनिवार"
+                    else -> ""
+                }
+            } catch (e: Exception) {
+                ""
+            }
+        }
+
         fun generateReportText(state: ReportsUiState): String {
             val dateDisplay = CalculationEngine.formatDateDisplay(state.selectedDate)
-            val sb = StringBuilder()
-            sb.append("*SHAHBUDDIN DAIRY*\n")
-            sb.append("*Daily Milk Sales Report*\n\n")
-            sb.append("Date: $dateDisplay\n\n")
-            sb.append("━━━━━━━━━━━━━━━━━━\n\n")
-            sb.append("*SUMMARY*\n\n")
-            sb.append("Customers: ${state.customerRows.size}\n")
-            sb.append("Delivered: ${state.servedCount}\n")
-            sb.append("Naaga: ${state.nagaCount}\n")
-            sb.append("Pending: ${state.pendingCount}\n\n")
-            sb.append("Total Milk: ${CalculationEngine.formatLiters(state.totalSoldLiters)}\n")
-            sb.append("Total Bill: ${CalculationEngine.formatMoney(state.totalBill)}\n")
-            sb.append("Cash: ${CalculationEngine.formatMoney(state.totalCashCollected)}\n")
-            sb.append("Online: ₹0\n")
-            sb.append("Due: ${CalculationEngine.formatMoney(state.pendingDue)}\n\n")
-            sb.append("━━━━━━━━━━━━━━━━━━\n\n")
-            sb.append("*DELIVERY DETAILS*\n\n")
+            val hindiDay = getHindiDayOfWeek(state.selectedDate)
+            val totalCustomers = state.customerRows.size
+            val totalMilk = state.totalSoldLiters
+            val totalBill = state.totalBill
+            val totalCash = state.totalCashCollected
+            val totalOnline = state.totalOnlineCollected
+            val totalDue = state.pendingDue
+            val totalAdv = state.totalCustomerAdvance
 
-            val servedRows = state.customerRows.filter { it.isServed }
-            if (servedRows.isEmpty()) {
-                sb.append("No deliveries recorded for this date.\n\n")
-            } else {
-                servedRows.forEachIndexed { index, row ->
-                    sb.append("${index + 1}. ${row.customer.name}\n")
-                    if (row.delivery?.deliveryTime?.isNotBlank() == true) {
-                        sb.append("   Time: ${row.delivery.deliveryTime}\n")
-                    }
-                    sb.append("   Milk: ${CalculationEngine.formatLiters(row.liters)}\n")
-                    sb.append("   Bill: ${CalculationEngine.formatMoney(row.bill)}\n")
-                    sb.append("   Cash: ${CalculationEngine.formatMoney(row.cashPaid)}\n")
-                    sb.append("   ✓ Delivered\n\n")
+            val totalCollected = totalCash + totalOnline
+
+            return buildString {
+                appendLine("*SHAHBUDDIN DAIRY (शाहबुद्दीन डेयरी)*")
+                appendLine("📍 96, Gulab Nagar, Bareilly, Uttar Pradesh, India")
+                appendLine("मो०: 9258263340")
+                appendLine("*Daily Business Statement • दैनिक रिपोर्ट*")
+                appendLine("$dateDisplay • $hindiDay")
+                appendLine("📍 Main Route (मुख्य रूट)")
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("📊 *आज का वित्तीय हिसाब (Financial Summary)*")
+                val trendStr = if (state.trendVsYesterdayPercent != null) {
+                    if (state.trendVsYesterdayPercent >= 0) " (↑ +${state.trendVsYesterdayPercent}%)" else " (↓ ${state.trendVsYesterdayPercent}%)"
+                } else ""
+                appendLine("🥛 कुल दूध वितरण: *%.2f L*${trendStr}".format(totalMilk))
+                appendLine("💵 आज का कुल बिल: *₹%,.2f*".format(totalBill))
+                appendLine("💰 आज प्राप्त नकद: *₹%,.2f* (${state.cashReceiptsList.size} ग्राहक)".format(totalCash))
+                if (totalOnline > 0) {
+                    appendLine("📱 आज प्राप्त ऑनलाइन: *₹%,.2f* (${state.onlineReceiptsList.size} ग्राहक)".format(totalOnline))
                 }
+                appendLine("⚡ आज की कुल वसूली: *₹%,.2f*".format(totalCollected))
+                appendLine("⏳ आज का बाकी बिल: *₹%,.2f*".format(state.pendingDue))
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("⚠️ *कुल बाजार उधारी (Market Due): ₹%,.2f*".format(state.totalMarketDue))
+                appendLine("🟢 *कुल अग्रिम जमा (Advance): ₹%,.2f*".format(totalAdv))
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("🚚 *डिलीवरी स्थिति ($totalCustomers सक्रिय ग्राहक)*")
+                appendLine("🟢 Delivered: *${state.servedCount}*")
+                appendLine("🟠 Pending: *${state.pendingCount}*")
+                appendLine("🔴 Naaga: *${state.nagaCount}*")
+                appendLine("🔵 Alt-Day (ऑफ): *${state.altDayCount}* (आज बंद)")
+                appendLine("📊 शेड्यूल पूर्ण: *${state.servedCount} / ${state.servedCount + state.pendingCount + state.nagaCount}*")
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+
+                if (state.cashReceiptsList.isNotEmpty()) {
+                    appendLine("💵 *आज प्राप्त नकद (₹%,.0f)*".format(totalCash))
+                    state.cashReceiptsList.take(15).forEach { r ->
+                        appendLine("✓ ${r.customerName}: ₹%,.0f".format(r.amount))
+                    }
+                    if (state.cashReceiptsList.size > 15) {
+                        appendLine("...तथा अन्य ${state.cashReceiptsList.size - 15} ग्राहक")
+                    }
+                    appendLine("*कुल नकद प्राप्त: ₹%,.0f*".format(totalCash))
+                    appendLine("━━━━━━━━━━━━━━━━━━━━")
+                }
+
+                if (state.onlineReceiptsList.isNotEmpty()) {
+                    appendLine("📱 *आज प्राप्त ऑनलाइन (₹%,.0f)*".format(totalOnline))
+                    state.onlineReceiptsList.forEach { r ->
+                        appendLine("✓ ${r.customerName}: ₹%,.0f (${r.mode})".format(r.amount))
+                    }
+                    appendLine("*कुल ऑनलाइन प्राप्त: ₹%,.0f*".format(totalOnline))
+                    appendLine("━━━━━━━━━━━━━━━━━━━━")
+                }
+
+                appendLine("📑 *स्टेटस अनुसार ग्राहक सूची*")
+                appendLine("🟢 *Delivered (${state.servedCount})*")
+                appendLine("कुल दूध: %.2f L | कुल बिल: ₹%,.0f | नकद: ₹%,.0f".format(totalMilk, totalBill, totalCash))
+                appendLine("🟠 *Pending (${state.pendingCount})*")
+                appendLine("कुल दूध: 0.00 L | कुल बिल: ₹0.00 | नकद: ₹0")
+                appendLine("🔴 *Naga (${state.nagaCount})*")
+                appendLine("कुल दूध: 0.00 L | कुल बिल: ₹0.00 | नकद: ₹0")
+                if (state.altDayCount > 0) {
+                    appendLine("🔵 *Alt-Day (${state.altDayCount})*")
+                    appendLine("आज दूध नहीं आता (1 दिन छोड़कर आने वाले)")
+                }
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("⚠️ *महत्वपूर्ण नोट*")
+                appendLine("• कुछ ग्राहकों से प्राप्त नकद उनके आज के बिल से अधिक है।")
+                appendLine("• यह राशि पुराने बकाये या एडवांस में जा सकती है।")
+                appendLine("• कृपया खाता में मिलान करके पुष्टि कर लें।")
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("Generated by Shahbuddin Dairy")
+                appendLine("Built by Uwais Ghosi • V8.9")
+                val printDate = SimpleDateFormat("dd MMM yyyy • hh:mm a", Locale.getDefault()).format(Date())
+                appendLine(printDate)
             }
-
-            sb.append("━━━━━━━━━━━━━━━━━━\n\n")
-            sb.append("*TOTAL*\n\n")
-            sb.append("Milk: ${CalculationEngine.formatLiters(state.totalSoldLiters)}\n")
-            sb.append("Bill: ${CalculationEngine.formatMoney(state.totalBill)}\n")
-            sb.append("Cash: ${CalculationEngine.formatMoney(state.totalCashCollected)}\n\n")
-            sb.append("Generated by Shahbuddin Dairy")
-
-            return sb.toString()
         }
 
         fun generateWhatsAppReportText(
@@ -344,60 +536,36 @@ class ReportsViewModel(application: Application) : AndroidViewModel(application)
             payments: List<com.shahbuddindairy.app.data.model.PaymentEntity> = emptyList()
         ): String {
             val dateDisplay = CalculationEngine.formatDateDisplay(selectedDate)
+            val hindiDay = getHindiDayOfWeek(selectedDate)
             val delivered = deliveries.filter { it.status == "delivered" && !it.isVoid }
-            val naga = deliveries.filter { it.status == "naga" && !it.isVoid }
+            val naga = deliveries.filter { (it.status == "skipped" || it.status == "naga") && !it.isVoid }
             val totalMilk = delivered.sumOf { it.liters }
             val totalBill = delivered.sumOf { it.totalAmount }
-            val totalCash = delivered.sumOf { it.paidCash }
-            val pendingDue = totalBill - totalCash
+            val totalCash = delivered.sumOf { it.paidCash } + payments.filter { it.date == selectedDate && it.paymentMode == "Cash" && !it.isVoid }.sumOf { it.amount }
+            val totalOnline = delivered.sumOf { it.paidOnline } + payments.filter { it.date == selectedDate && it.paymentMode != "Cash" && !it.isVoid }.sumOf { it.amount }
+            val pendingDue = (totalBill - (totalCash + totalOnline)).coerceAtLeast(0.0)
 
-            val sb = StringBuilder()
-            sb.append("*SHAHBUDDIN DAIRY*\n")
-            sb.append("*Daily Milk Sales Report*\n\n")
-            sb.append("Date: $dateDisplay\n\n")
-            sb.append("━━━━━━━━━━━━━━━━━━\n\n")
-            sb.append("*SUMMARY*\n\n")
-            sb.append("Customers: ${customers.size}\n")
-            sb.append("Delivered: ${delivered.size}\n")
-            sb.append("Naaga: ${naga.size}\n")
-            val pendingCount = (customers.size - delivered.size - naga.size).coerceAtLeast(0)
-            sb.append("Pending: $pendingCount\n\n")
-            sb.append("Total Milk: ${CalculationEngine.formatLiters(totalMilk)}\n")
-            sb.append("Total Bill: ${CalculationEngine.formatMoney(totalBill)}\n")
-            sb.append("Cash: ${CalculationEngine.formatMoney(totalCash)}\n")
-            sb.append("Online: ₹0\n")
-            sb.append("Due: ${CalculationEngine.formatMoney(pendingDue)}\n\n")
-            sb.append("━━━━━━━━━━━━━━━━━━\n\n")
-            sb.append("*DELIVERY DETAILS*\n\n")
-
-            if (deliveries.isEmpty()) {
-                sb.append("No deliveries recorded for this date.\n\n")
-            } else {
-                deliveries.filter { !it.isVoid }.forEachIndexed { index, d ->
-                    val custName = customers.find { it.id == d.customerId }?.name ?: "Customer #${d.customerId}"
-                    sb.append("${index + 1}. $custName\n")
-                    if (!d.deliveryTime.isNullOrBlank()) {
-                        sb.append("   Time: ${d.deliveryTime}\n")
-                    }
-                    if (d.status == "delivered") {
-                        sb.append("   Milk: ${CalculationEngine.formatLiters(d.liters)}\n")
-                        sb.append("   Bill: ${CalculationEngine.formatMoney(d.totalAmount)}\n")
-                        sb.append("   Cash: ${CalculationEngine.formatMoney(d.paidCash)}\n")
-                        sb.append("   ✓ Delivered\n\n")
-                    } else if (d.status == "naga") {
-                        sb.append("   ✗ Naaga (नागा)\n\n")
-                    }
-                }
+            return buildString {
+                appendLine("*SHAHBUDDIN DAIRY*")
+                appendLine("*Daily Milk Sales Report*")
+                appendLine("$dateDisplay • $hindiDay")
+                appendLine("📍 Main Route (मुख्य रूट)")
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("📊 *आज का सारांश (Summary)*")
+                appendLine("🥛 कुल दूध: *%.2f L*".format(totalMilk))
+                appendLine("💵 कुल बिक्री: *₹%,.2f*".format(totalBill))
+                appendLine("💰 कैश प्राप्त: *₹%,.2f*".format(totalCash))
+                appendLine("📱 ऑनलाइन: *₹%,.2f*".format(totalOnline))
+                appendLine("⚠️ कुल बकाया: *₹%,.2f*".format(pendingDue))
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("🚚 *डिलीवरी स्थिति (${customers.size} ग्राहक)*")
+                appendLine("🟢 Delivered: *${delivered.size}*")
+                appendLine("🔴 Naaga: *${naga.size}*")
+                val pendingCount = (customers.size - delivered.size - naga.size).coerceAtLeast(0)
+                appendLine("🟠 Pending: *${pendingCount}*")
+                appendLine("━━━━━━━━━━━━━━━━━━━━")
+                appendLine("Generated by Shahbuddin Dairy V8.9")
             }
-
-            sb.append("━━━━━━━━━━━━━━━━━━\n\n")
-            sb.append("*TOTAL*\n\n")
-            sb.append("Milk: ${CalculationEngine.formatLiters(totalMilk)}\n")
-            sb.append("Bill: ${CalculationEngine.formatMoney(totalBill)}\n")
-            sb.append("Cash: ${CalculationEngine.formatMoney(totalCash)}\n\n")
-            sb.append("Generated by Shahbuddin Dairy")
-
-            return sb.toString()
         }
     }
 }

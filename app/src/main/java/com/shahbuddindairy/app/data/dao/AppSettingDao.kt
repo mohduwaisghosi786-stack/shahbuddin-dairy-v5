@@ -26,4 +26,7 @@ interface AppSettingDao {
 
     @Query("SELECT * FROM app_settings WHERE `key` LIKE 'pbs_pending_%'")
     fun getAllPbsSettingsFlow(): Flow<List<AppSettingEntity>>
+
+    @Query("SELECT * FROM app_settings WHERE `key` LIKE 'pbs_pending_%'")
+    suspend fun getAllPbsSettingsDirect(): List<AppSettingEntity>
 }

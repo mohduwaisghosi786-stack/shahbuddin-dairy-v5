@@ -38,7 +38,7 @@ import com.shahbuddindairy.app.ui.theme.ThemeMode
 @Composable
 fun AppTopHeader(
     title: String = "Shahbuddin Dairy",
-    subtitle: String = "V7.6 • गुलाब नगर, बरेली",
+    subtitle: String = "V9.0 • गुलाब नगर, बरेली",
     marketDue: Double? = null,
     onNavigateToSettings: (() -> Unit)? = null
 ) {
@@ -95,7 +95,7 @@ fun AppTopHeader(
                                     .padding(horizontal = 5.dp, vertical = 1.dp)
                             ) {
                                 Text(
-                                    text = "V8.0",
+                                    text = "V9.0",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = colorScheme.primary

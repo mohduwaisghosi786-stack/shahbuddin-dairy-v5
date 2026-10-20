@@ -22,6 +22,7 @@ data class RouteProgressStat(
     val deliveredCount: Int,
     val pendingCount: Int,
     val nagaCount: Int,
+    val altDayCount: Int = 0,
     val percent: Int
 )
 
@@ -30,12 +31,14 @@ data class DashboardUiState(
     val totalMilkDispatched: Double = 0.0,
     val totalBillToday: Double = 0.0,
     val totalCashCollectedToday: Double = 0.0,
+    val totalOnlineCollectedToday: Double = 0.0,
     val totalMarketDue: Double = 0.0,
     val totalAdvanceBalance: Double = 0.0,
     val totalActiveCustomers: Int = 0,
     val deliveredCount: Int = 0,
     val pendingCount: Int = 0,
     val nagaCount: Int = 0,
+    val altDayCount: Int = 0,
     val routeProgressStats: List<RouteProgressStat> = emptyList(),
     val isLoading: Boolean = false
 )
@@ -54,15 +57,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val deliveries = repository.getDeliveriesForDateDirect(date)
         val allDeliveries = repository.getAllDeliveriesDirect()
         val allPayments = repository.getAllPaymentsDirect()
+        val paymentsToday = allPayments.filter { it.date == date && !it.isVoid }
 
         var totalMilk = 0.0
         var totalBill = 0.0
         var totalCash = 0.0
+        var totalOnline = 0.0
         var servedCount = 0
         var nagaCount = 0
         var pendingCount = 0
+        var altDayCount = 0
 
-        val delivMap = deliveries.filter { it.date == date }.associateBy { it.customerId }
+        val delivMap = deliveries.filter { it.date == date && !it.isVoid }.associateBy { it.customerId }
 
         for (c in customers) {
             val d = delivMap[c.id]
@@ -72,21 +78,37 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     totalMilk += d.liters
                     totalBill += d.totalAmount
                     totalCash += d.paidCash
-                } else if (d.status == "skipped") {
+                    totalOnline += d.paidOnline
+                } else if (d.status == "skipped" || d.status == "naga") {
                     nagaCount++
                 }
             } else {
-                pendingCount++
+                if (CalculationEngine.isOffDay(c, date)) {
+                    altDayCount++
+                } else {
+                    pendingCount++
+                }
             }
         }
 
-        // Financial balances across entire market
+        // Add standalone direct payments received today
+        for (p in paymentsToday) {
+            if (p.paymentMode == "Cash") {
+                totalCash += p.amount
+            } else {
+                totalOnline += p.amount
+            }
+        }
+
+        // Financial balances across entire market (strictly unified with PBS)
         var totalMarketDue = 0.0
         var totalAdvance = 0.0
         for (c in customers) {
             val net = CalculationEngine.calculateCustomerBalance(c.id, allDeliveries, allPayments)
-            if (net > 0) totalMarketDue += net
-            else if (net < 0) totalAdvance += (-net)
+            val pbs = repository.getPbsPending(c.id)
+            val totalBal = CalculationEngine.round2(net + pbs)
+            if (totalBal > 0) totalMarketDue += totalBal
+            else if (totalBal < 0) totalAdvance += (-totalBal)
         }
 
         // Route wise breakdown
@@ -99,16 +121,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             var rDelivered = 0
             var rNaga = 0
             var rPending = 0
+            var rAltDay = 0
             for (rc in routeCusts) {
                 val d = delivMap[rc.id]
                 if (d != null && !d.isVoid) {
                     if (d.status == "delivered") rDelivered++
-                    else if (d.status == "skipped") rNaga++
+                    else if (d.status == "skipped" || d.status == "naga") rNaga++
                 } else {
-                    rPending++
+                    if (CalculationEngine.isOffDay(rc, date)) {
+                        rAltDay++
+                    } else {
+                        rPending++
+                    }
                 }
             }
-            val pct = if (routeCusts.isNotEmpty()) (rDelivered * 100) / routeCusts.size else 0
+            val scheduledCount = rDelivered + rNaga + rPending
+            val pct = if (scheduledCount > 0) (rDelivered * 100) / scheduledCount else if (routeCusts.isNotEmpty()) (rDelivered * 100) / routeCusts.size else 0
             routeStats.add(
                 RouteProgressStat(
                     routeId = routeId,
@@ -117,6 +145,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     deliveredCount = rDelivered,
                     pendingCount = rPending,
                     nagaCount = rNaga,
+                    altDayCount = rAltDay,
                     percent = pct
                 )
             )
@@ -124,15 +153,17 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         DashboardUiState(
             selectedDate = date,
-            totalMilkDispatched = totalMilk,
-            totalBillToday = totalBill,
-            totalCashCollectedToday = totalCash,
-            totalMarketDue = totalMarketDue,
-            totalAdvanceBalance = totalAdvance,
+            totalMilkDispatched = CalculationEngine.round2(totalMilk),
+            totalBillToday = CalculationEngine.round2(totalBill),
+            totalCashCollectedToday = CalculationEngine.round2(totalCash),
+            totalOnlineCollectedToday = CalculationEngine.round2(totalOnline),
+            totalMarketDue = CalculationEngine.round2(totalMarketDue),
+            totalAdvanceBalance = CalculationEngine.round2(totalAdvance),
             totalActiveCustomers = customers.size,
             deliveredCount = servedCount,
             pendingCount = pendingCount,
             nagaCount = nagaCount,
+            altDayCount = altDayCount,
             routeProgressStats = routeStats,
             isLoading = false
         )

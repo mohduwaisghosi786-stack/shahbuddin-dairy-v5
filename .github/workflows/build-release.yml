@@ -1,0 +1,78 @@
+name: Build & Release Shahbuddin Dairy APK
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build & Package Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Make Gradle Wrapper Executable
+        run: chmod +x gradlew
+
+      - name: Build Android Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Prepare APK Artifacts
+        id: prepare_apk
+        run: |
+          APK_SRC="app/build/outputs/apk/debug/app-debug.apk"
+          VERSION_NAME="v9.1"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          OUTPUT_APK="ShahbuddinDairy-${VERSION_NAME}.apk"
+          cp "$APK_SRC" "$OUTPUT_APK"
+          echo "apk_path=$OUTPUT_APK" >> $GITHUB_OUTPUT
+          echo "version=$VERSION_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload APK Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShahbuddinDairy-APK-${{ steps.prepare_apk.outputs.version }}
+          path: ${{ steps.prepare_apk.outputs.apk_path }}
+          retention-days: 30
+
+      - name: Create GitHub Release (On Tag Push)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.prepare_apk.outputs.apk_path }}
+          name: Shahbuddin Dairy ${{ steps.prepare_apk.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ### 🥛 Shahbuddin Dairy Official App Release ${{ steps.prepare_apk.outputs.version }}
+            
+            **डाउनलोड लिंक**: नीचे दी गई APK फ़ाइल डाउनलोड करके सीधे अपने फोन में इंस्टॉल या अपडेट करें।
+            
+            #### 🚀 प्रमुख नई विशेषताएं (What's New in V9.1):
+            - **अल्टरनेट ग्राहक रनर सूची**: अब रनर डिलीवरी लिस्ट में अल्टरनेट ग्राहक भी दिखेंगे। यदि उनके पास दूध समाप्त हो जाए तो तुरंत रनर मोड से दूध और नकद दर्ज किया जा सकता है।
+            - **100% इन-हाउस स्मार्ट ऑफ़लाइन AI**: किसी बाहरी सर्वर या इंटरनेट की आवश्यकता नहीं। मुंशी वॉइस एवं टेक्स्ट 0ms लेटेंसी के साथ फोन पर ही प्रोसेस होता है।
+            - **रियलमी C55 मोबाइल पोर्ट्रेट PDF इंजन**: 380x800 मोबाइल आस्पेक्ट रेशियो के साथ नया कार्ड-बेस्ड डेली रिपोर्ट इंजन।
+            - **प्रमुख नकद एवं बकाया कार्ड**: हर ग्राहक का पूरा नाम, डिलीवरी स्थिति, जमा नकद (बोल्ड हरा) और बकाया/एडवांस कार्ड पर स्पष्ट दिखेगा।
+            - **स्वचालित गिटहब रिलीज़**: अब हर नए अपडेट का APK सीधे GitHub Releases पर उपलब्ध रहेगा।

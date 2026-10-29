@@ -263,10 +263,9 @@ fun DailyTaskScreen(
     var scrubberBubbleText by remember { mutableStateOf<String?>(null) }
     var skippedCustomerIds by remember { mutableStateOf(listOf<Long>()) }
 
-    // Runner Queue Filtering (Exclude Alternate Off, move skipped to end of queue)
+    // Runner Queue (Include ALL active customers so alternate customers are accessible if they need milk!)
     val allCards = uiState.customerCards
-    val runnerQueueCards = remember(allCards) { allCards.filter { !it.isAlternateOff } }
-    val baseCards = if (runnerQueueCards.isNotEmpty()) runnerQueueCards else allCards
+    val baseCards = allCards
     val cards = remember(baseCards, skippedCustomerIds) {
         if (skippedCustomerIds.isEmpty()) baseCards
         else {
@@ -326,33 +325,31 @@ fun DailyTaskScreen(
                                 color = colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.width(5.dp))
-                            // Live AI Ping Badge
+                            // 100% Offline Smart AI Badge
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (aiPingLatency != null) Color(0xFFDCFCE7) else Color(0xFFFEF3C7),
-                                border = BorderStroke(1.dp, if (aiPingLatency != null) Color(0xFF86EFAC) else Color(0xFFFCD34D)),
+                                color = Color(0xFFDCFCE7),
+                                border = BorderStroke(1.dp, Color(0xFF86EFAC)),
                                 modifier = Modifier.clickable {
-                                    coroutineScope.launch {
-                                        aiPingLatency = aiClient.checkPingLatency()
-                                    }
+                                    showAiMunshiDialog = true
                                 }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
                                         modifier = Modifier
                                             .size(5.dp)
                                             .clip(CircleShape)
-                                            .background(if (aiPingLatency != null) Color(0xFF15803D) else Color(0xFFD97706))
+                                            .background(Color(0xFF15803D))
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
-                                        text = if (aiPingLatency != null) "Debian • ${aiPingLatency}ms" else "Local AI",
-                                        fontSize = 9.sp,
+                                        text = "स्मार्ट AI",
+                                        fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (aiPingLatency != null) Color(0xFF15803D) else Color(0xFF92400E)
+                                        color = Color(0xFF15803D)
                                     )
                                 }
                             }
@@ -2960,6 +2957,31 @@ fun DailyTaskRunnerCard(
                     }
                 }
 
+                // ALTERNATE DAY CUSTOMER NOTICE
+                if (item.isAlternateOff && !item.isDone) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFEFF6FF),
+                        border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🔵", fontSize = 11.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "अल्टरनेट ग्राहक: यदि आज दूध चाहिए तो मात्रा चुनकर 'सेव करें' दबाएं।",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E40AF)
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
                 HorizontalDivider(color = colorScheme.outlineVariant, thickness = 0.5.dp)
                 Spacer(modifier = Modifier.height(6.dp))
@@ -3154,7 +3176,7 @@ fun DailyTaskRunnerCard(
                         shape = RoundedCornerShape(10.dp),
                         color = if (existingPbs > 0) Color(0xFFFFF7ED) else colorScheme.surfaceVariant,
                         border = BorderStroke(1.dp, if (existingPbs > 0) Color(0xFFFED7AA) else colorScheme.outlineVariant),
-                        modifier = Modifier.weight(1f).height(62.dp).clickable { onDueEditClicked() }
+                        modifier = Modifier.weight(1f).height(62.dp).clickable { onPbsEditClicked() }
                     ) {
                         Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
                             Row(

@@ -82,26 +82,8 @@ class DairyAiService(private val context: Context) {
             )
         }
 
-        // If AI is disabled or offline, use deterministic offline fallback
-        if (!apiClient.isAiEnabled) {
-            return@withContext parseFallbackLocal(trimmed, customers, "ऑफ़लाइन मोड")
-        }
-
-        try {
-            val parseResult = apiClient.parseDairyInstruction(trimmed, customers)
-            if (parseResult is AiParseResult.Success && parseResult.rawServerResponse != null) {
-                val parsed = extractStructuredIntent(parseResult.rawServerResponse, customers)
-                if (parsed != null) {
-                    return@withContext parsed
-                }
-            }
-
-            // Fallback to local heuristic parser
-            parseFallbackLocal(trimmed, customers, "AI सर्वर से उत्तर पार्स नहीं हो सका")
-        } catch (e: Exception) {
-            Log.w(TAG, "DairyAiService error: ${e.message}")
-            parseFallbackLocal(trimmed, customers, "सर्वर टाइमआउट (${e.localizedMessage ?: "timeout"})")
-        }
+        // 100% In-House Smart Offline AI Engine (Zero-Cost, Zero-Network, Zero-Latency)
+        parseFallbackLocal(trimmed, customers, "स्मार्ट मुंशी")
     }
 
     private fun extractStructuredIntent(

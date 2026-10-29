@@ -672,7 +672,7 @@ fun AiMunshiDialog(
                     }
 
                     Text(
-                        text = "🔒 सुरक्षा: AI सर्वर आपके निजी Tailscale नेटवर्क पर चलता है। अगर सर्वर बंद हो तो ऐप 100% ऑफ़लाइन काम करता रहेगा।",
+                        text = "🔒 सुरक्षा: इन-हाउस स्मार्ट AI इंजन 100% ऑफ़लाइन आपके फोन पर चलता है। किसी बाहरी सर्वर या इंटरनेट की आवश्यकता नहीं है।",
                         fontSize = 10.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

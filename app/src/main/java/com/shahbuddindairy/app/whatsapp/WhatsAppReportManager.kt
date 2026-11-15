@@ -119,29 +119,33 @@ object WhatsAppReportManager {
         todayBill: Double,
         cashPaid: Double,
         totalRemainingDue: Double,
-        dairyName: String = "शाहबुद्दीन डेयरी"
+        dairyName: String = "SHAHBUDDIN DAIRY (Bareilly)"
     ) {
         val message = buildString {
             append("🥛 *").append(dairyName).append("*\n")
+            append("Official Delivery Receipt\n")
             append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("📅 दिनांक: ").append(dateStr).append("\n")
-            append("👤 ग्राहक: *").append(customerName).append("*\n")
-            append("🍶 दूध: *").append(if (liters == liters.toLong().toDouble()) "${liters.toLong()}" else "%.1f".format(liters)).append("L* (").append(milkType).append(")\n")
-            append("⚡ दर (Rate): ₹%.0f/L\n".format(rate))
-            append("💵 आज का बिल: *₹%.0f*\n".format(todayBill))
+            append("📅 Date: ").append(dateStr).append("\n")
+            append("👤 Customer: *").append(customerName).append("*\n")
+            append("🍶 Milk: *").append(if (liters == liters.toLong().toDouble()) "${liters.toLong()}" else "%.1f".format(liters)).append("L* (").append(milkType).append(")\n")
+            append("⚡ Rate: ₹%.0f/L\n".format(rate))
+            append("💵 Today Bill: *₹%.0f*\n".format(todayBill))
             if (cashPaid > 0) {
-                append("💰 नकद प्राप्त: *₹%.0f*\n".format(cashPaid))
+                append("💰 Cash Paid: *₹%.0f*\n".format(cashPaid))
             }
             append("━━━━━━━━━━━━━━━━━━━━\n")
             if (totalRemainingDue > 0) {
-                append("📊 *कुल बकाया राशि: ₹%.0f*\n".format(totalRemainingDue))
+                append("🔴 *Total Due Balance: ₹%.0f*\n".format(totalRemainingDue))
             } else if (totalRemainingDue < 0) {
-                append("🎁 *जमा एडवांस: ₹%.0f*\n".format(-totalRemainingDue))
+                append("🟢 *Advance Holding: ₹%.0f*\n".format(-totalRemainingDue))
             } else {
-                append("✅ *हिसाब बराबर (No Due)*\n")
+                append("✅ *Account Settled (Nil Due)*\n")
             }
+            append("💡 AI Insight: Regular daily delivery • Verified transaction.\n")
             append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("धन्यवाद! आपका दिन शुभ हो। 🙏")
+            append("Thank you for your business.\n")
+            append("Shahbuddin Dairy • Ph: 9258263340\n")
+            append("Gulab Nagar, Bareilly")
         }
 
         launchWhatsApp(context, customerPhone, message)
@@ -160,33 +164,69 @@ object WhatsAppReportManager {
         totalMilkBill: Double,
         totalPaid: Double,
         closingBalance: Double,
-        dairyName: String = "शाहबुद्दीन डेयरी"
+        dairyName: String = "SHAHBUDDIN DAIRY (Bareilly)"
     ) {
         val message = buildString {
-            append("📋 *").append(dairyName).append(" — खाता विवरण*\n")
+            append("📋 *").append(dairyName).append("*\n")
+            append("Monthly Account Statement\n")
             append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("👤 ग्राहक: *").append(customerName).append("*\n")
-            append("📅 अवधि: ").append(periodStr).append("\n")
+            append("👤 Customer: *").append(customerName).append("*\n")
+            append("📅 Period: ").append(periodStr).append("\n")
             if (openingBalance != 0.0) {
-                append("🔄 पुराना बकाया: ₹%.0f\n".format(openingBalance))
+                append("🔄 Opening Balance: ₹%.0f\n".format(openingBalance))
             }
-            append("🥛 कुल दूध: *%.1f Liters*\n".format(totalMilkLiters))
-            append("💵 कुल दूध बिल: *₹%.0f*\n".format(totalMilkBill))
-            append("💰 कुल जमा (भुगतान): *₹%.0f*\n".format(totalPaid))
+            append("🥛 Total Milk: *%.1f Liters*\n".format(totalMilkLiters))
+            append("💵 Total Milk Bill: *₹%.0f*\n".format(totalMilkBill))
+            append("💰 Total Paid: *₹%.0f*\n".format(totalPaid))
             append("━━━━━━━━━━━━━━━━━━━━\n")
             if (closingBalance > 0) {
-                append("🚨 *अंतिम देय बकाया: ₹%.0f*\n".format(closingBalance))
-                append("कृपया बकाया राशि का भुगतान करें।\n")
+                append("🔴 *Net Outstanding Due: ₹%.0f*\n".format(closingBalance))
+                append("Kindly arrange payment at your earliest convenience.\n")
             } else if (closingBalance < 0) {
-                append("🎁 *अग्रिम जमा (Advance): ₹%.0f*\n".format(-closingBalance))
+                append("🟢 *Advance Holding: ₹%.0f*\n".format(-closingBalance))
             } else {
-                append("✅ *खाता पूर्णतः चुकता (Nil Balance)*\n")
+                append("✅ *Account Cleared (Nil Balance)*\n")
             }
             append("━━━━━━━━━━━━━━━━━━━━\n")
-            append("किसी भी प्रश्न के लिए संपर्क करें। धन्यवाद! 🙏")
+            append("Thank you.\n")
+            append("Shahbuddin Dairy • Ph: 9258263340\n")
+            append("Gulab Nagar, Bareilly")
         }
 
         launchWhatsApp(context, customerPhone, message)
+    }
+
+    /**
+     * Shares an Image Receipt directly to WhatsApp.
+     */
+    fun shareReceiptImageViaWhatsApp(
+        context: Context,
+        imageFile: java.io.File,
+        phone: String? = null,
+        caption: String = "🥛 Shahbuddin Dairy — Official Delivery Receipt"
+    ) {
+        VoiceFeedbackManager.getInstance(context).playShareSound()
+        try {
+            val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                imageFile
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, contentUri)
+                putExtra(Intent.EXTRA_TEXT, caption)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val cleanPhone = sanitizePhoneNumber(phone)
+                if (cleanPhone != null) {
+                    setPackage("com.whatsapp")
+                }
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share Receipt Image"))
+        } catch (e: Exception) {
+            Toast.makeText(context, "Image शेयर विफल: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     /**
@@ -288,19 +328,24 @@ object WhatsAppReportManager {
         customerName: String,
         dueAmount: Double,
         upiId: String?,
-        payeeName: String = "शाहबुद्दीन डेयरी"
+        payeeName: String = "SHAHBUDDIN DAIRY (Bareilly)"
     ) {
         val message = buildString {
-            append("🙏 *सादर प्रणाम ").append(customerName).append(" जी,*\n\n")
-            append("यह ").append(payeeName).append(" की तरफ से एक विनम्र सूचना है।\n")
-            append("आपकी वर्तमान कुल बकाया राशि *₹%.0f* है।\n\n".format(dueAmount))
-            append("कृपया अपनी सुविधानुसार भुगतान करने का कष्ट करें।\n")
+            append("*").append(payeeName).append("*\n")
+            append("Official Payment Reminder\n")
+            append("━━━━━━━━━━━━━━━━━━━━\n")
+            append("Customer: *").append(customerName).append("*\n")
+            append("Total Outstanding Due: *₹%.0f*\n\n".format(dueAmount))
+            append("Kindly arrange payment at your earliest convenience.\n")
             if (!upiId.isNullOrBlank()) {
                 append("📲 *UPI ID:* `").append(upiId.trim()).append("`\n")
-                val upiLink = "upi://pay?pa=${upiId.trim()}&pn=${URLEncoder.encode(payeeName, "UTF-8")}&am=%.2f&cu=INR".format(dueAmount)
+                val upiLink = "upi://pay?pa=${upiId.trim()}&pn=${URLEncoder.encode("Shahbuddin Dairy", "UTF-8")}&am=%.2f&cu=INR".format(dueAmount)
                 append("🔗 *Direct Pay Link:* ").append(upiLink).append("\n")
             }
-            append("\nधन्यवाद! 🙏")
+            append("━━━━━━━━━━━━━━━━━━━━\n")
+            append("Thank you.\n")
+            append("Shahbuddin Dairy • Ph: 9258263340\n")
+            append("96, Gulab Nagar, Bareilly")
         }
 
         launchWhatsApp(context, customerPhone, message)

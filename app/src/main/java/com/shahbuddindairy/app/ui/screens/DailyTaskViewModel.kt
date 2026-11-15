@@ -794,6 +794,43 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
 
             repository.saveDelivery(delivery)
 
+            // Automatic Smart AI Notes Engine (V9.2)
+            if (cash > 0 && cash < bill) {
+                val shortfall = CalculationEngine.round2(bill - cash)
+                val dateDisplay = CalculationEngine.formatDateDisplay(date)
+                val noteText = "💰 भुगतान शेष ($dateDisplay): दूध बिल ₹%.0f में से ₹%.0f प्राप्त। शेष ₹%.0f कल के लिए बाकी।".format(bill, cash, shortfall)
+                val noteId = "note_${System.currentTimeMillis()}_${item.customer.id}"
+                val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                repository.saveNote(
+                    CustomerNoteEntity(
+                        id = noteId,
+                        customerId = item.customer.id,
+                        content = noteText,
+                        category = "Payment",
+                        isPinned = true,
+                        createdAt = nowStr,
+                        updatedAt = nowStr
+                    )
+                )
+            } else if (cash > bill) {
+                val advance = CalculationEngine.round2(cash - bill)
+                val dateDisplay = CalculationEngine.formatDateDisplay(date)
+                val noteText = "🟢 अग्रिम जमा ($dateDisplay): बिल ₹%.0f पर ₹%.0f नकद प्राप्त (₹%.0f अग्रिम जमा)।".format(bill, cash, advance)
+                val noteId = "note_${System.currentTimeMillis()}_${item.customer.id}"
+                val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                repository.saveNote(
+                    CustomerNoteEntity(
+                        id = noteId,
+                        customerId = item.customer.id,
+                        content = noteText,
+                        category = "Payment",
+                        isPinned = true,
+                        createdAt = nowStr,
+                        updatedAt = nowStr
+                    )
+                )
+            }
+
             val q = _quantities.value.toMutableMap()
             q.remove(item.customer.id)
             _quantities.value = q
@@ -808,11 +845,12 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun markNaga(item: DailyCustomerCardItem, onSuccess: (() -> Unit)? = null) {
+    fun markNaga(item: DailyCustomerCardItem, reason: String = "", onSuccess: (() -> Unit)? = null) {
         viewModelScope.launch {
             val date = _selectedDate.value
             val existing = repository.getDeliveryForCustomerAndDate(item.customer.id, date)
             val deliveryId = existing?.id ?: item.delivery?.id ?: "d_${date}_${item.customer.id}"
+            val finalNote = if (reason.isNotBlank()) "नागा: $reason" else "Naga (Skipped)"
             val delivery = DeliveryEntity(
                 id = deliveryId,
                 customerId = item.customer.id,
@@ -826,7 +864,7 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
                 paidOnline = 0.0,
                 totalPaid = 0.0,
                 status = "skipped",
-                note = "Naga (Skipped)",
+                note = finalNote,
                 isVoid = false
             )
             repository.saveDelivery(delivery)
@@ -1104,6 +1142,43 @@ class DailyTaskViewModel(application: Application) : AndroidViewModel(applicatio
             )
 
             repository.saveDelivery(delivery)
+
+            // Automatic Smart AI Notes Engine (V9.2)
+            if (cash > 0 && cash < finalBill) {
+                val shortfall = CalculationEngine.round2(finalBill - cash)
+                val dateDisplay = CalculationEngine.formatDateDisplay(date)
+                val noteText = "💰 भुगतान शेष ($dateDisplay): दूध बिल ₹%.0f में से ₹%.0f प्राप्त। शेष ₹%.0f कल के लिए बाकी।".format(finalBill, cash, shortfall)
+                val noteId = "note_${System.currentTimeMillis()}_${item.customer.id}"
+                val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                repository.saveNote(
+                    CustomerNoteEntity(
+                        id = noteId,
+                        customerId = item.customer.id,
+                        content = noteText,
+                        category = "Payment",
+                        isPinned = true,
+                        createdAt = nowStr,
+                        updatedAt = nowStr
+                    )
+                )
+            } else if (cash > finalBill) {
+                val advance = CalculationEngine.round2(cash - finalBill)
+                val dateDisplay = CalculationEngine.formatDateDisplay(date)
+                val noteText = "🟢 अग्रिम जमा ($dateDisplay): बिल ₹%.0f पर ₹%.0f नकद प्राप्त (₹%.0f अग्रिम जमा)।".format(finalBill, cash, advance)
+                val noteId = "note_${System.currentTimeMillis()}_${item.customer.id}"
+                val nowStr = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date())
+                repository.saveNote(
+                    CustomerNoteEntity(
+                        id = noteId,
+                        customerId = item.customer.id,
+                        content = noteText,
+                        category = "Payment",
+                        isPinned = true,
+                        createdAt = nowStr,
+                        updatedAt = nowStr
+                    )
+                )
+            }
 
             val q = _quantities.value.toMutableMap()
             q.remove(item.customer.id)

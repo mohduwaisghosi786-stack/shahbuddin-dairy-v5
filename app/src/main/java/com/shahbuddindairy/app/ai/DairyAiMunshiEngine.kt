@@ -19,6 +19,16 @@ data class DairyAiMunshiCommand(
     val explanationHindi: String = ""
 )
 
+data class TomorrowDemandPrediction(
+    val totalLitersNeeded: Double,
+    val buffaloLiters: Double,
+    val cowLiters: Double,
+    val scheduledCustomerCount: Int,
+    val alternateOffCount: Int,
+    val suggestedLoadWithBuffer: Double,
+    val hindiSummary: String
+)
+
 /**
  * 100% Offline, Zero-Cost, Deterministic Dairy AI Munshi NLP Engine.
  * Runs locally on Android device without internet or paid APIs.
@@ -244,5 +254,65 @@ object DairyAiMunshiEngine {
             }
         }
         return dp[s1.length][s2.length]
+    }
+
+    /**
+     * V9.2: Offline AI Demand Predictor for next morning.
+     * Analyzes customer default volumes and alternate schedules to forecast buffalo & cow demand.
+     */
+    fun predictTomorrowDemand(
+        customers: List<CustomerEntity>,
+        todayDateStr: String
+    ): TomorrowDemandPrediction {
+        val tomorrowDateStr = try {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val d = sdf.parse(todayDateStr) ?: java.util.Date()
+            val cal = java.util.Calendar.getInstance().apply {
+                time = d
+                add(java.util.Calendar.DAY_OF_YEAR, 1)
+            }
+            sdf.format(cal.time)
+        } catch (e: Exception) {
+            todayDateStr
+        }
+
+        var buffaloLiters = 0.0
+        var cowLiters = 0.0
+        var scheduledCount = 0
+        var alternateCount = 0
+
+        val active = customers.filter { it.isArchived == 0 && it.isActive == 1 }
+        for (c in active) {
+            val isOff = com.shahbuddindairy.app.domain.CalculationEngine.isOffDay(c, tomorrowDateStr)
+            if (isOff) {
+                alternateCount++
+            } else {
+                scheduledCount++
+                val qty = if (c.defaultLiters > 0) c.defaultLiters else 1.0
+                if (c.milkType == "गाय") {
+                    cowLiters += qty
+                } else {
+                    buffaloLiters += qty
+                }
+            }
+        }
+
+        val total = buffaloLiters + cowLiters
+        val buffer = (total * 0.05).coerceAtLeast(1.5)
+        val loadSuggested = (total + buffer)
+
+        val summary = "कल सुबह का AI अनुमान: कुल %.1fL दूध लोड करें (भैंस: %.1fL, गाय: %.1fL)। %d ग्राहक शेड्यूल, %d अल्टरनेट अवकाश।".format(
+            loadSuggested, buffaloLiters, cowLiters, scheduledCount, alternateCount
+        )
+
+        return TomorrowDemandPrediction(
+            totalLitersNeeded = com.shahbuddindairy.app.domain.CalculationEngine.round2(total),
+            buffaloLiters = com.shahbuddindairy.app.domain.CalculationEngine.round2(buffaloLiters),
+            cowLiters = com.shahbuddindairy.app.domain.CalculationEngine.round2(cowLiters),
+            scheduledCustomerCount = scheduledCount,
+            alternateOffCount = alternateCount,
+            suggestedLoadWithBuffer = com.shahbuddindairy.app.domain.CalculationEngine.round2(loadSuggested),
+            hindiSummary = summary
+        )
     }
 }

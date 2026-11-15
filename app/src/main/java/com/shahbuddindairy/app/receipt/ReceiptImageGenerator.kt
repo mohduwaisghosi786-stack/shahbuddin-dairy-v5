@@ -23,7 +23,7 @@ object ReceiptImageGenerator {
         qrBitmap: Bitmap? = null
     ): Bitmap {
         val width = 720
-        val height = if (qrBitmap != null) 1150 else 920
+        val height = if (qrBitmap != null) 1200 else 960
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
@@ -49,7 +49,7 @@ object ReceiptImageGenerator {
 
         // Header Background
         val headerPaint = Paint().apply {
-            color = Color.rgb(74, 20, 140) // Purple
+            color = Color.rgb(22, 101, 52) // Forest Emerald Green
             style = Paint.Style.FILL
             isAntiAlias = true
         }
@@ -61,29 +61,29 @@ object ReceiptImageGenerator {
         // Header text
         val titlePaint = Paint().apply {
             color = Color.WHITE
-            textSize = 30f
+            textSize = 28f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("शाहबुद्दीन डेयरी (Shahbuddin Dairy)", (width / 2).toFloat(), 75f, titlePaint)
+        canvas.drawText("SHAHBUDDIN DAIRY (BAREILLY)", (width / 2).toFloat(), 72f, titlePaint)
 
         val subTitlePaint = Paint().apply {
-            color = Color.rgb(225, 190, 231)
-            textSize = 20f
+            color = Color.rgb(187, 247, 208)
+            textSize = 19f
             typeface = Typeface.DEFAULT
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("वितरण व भुगतान रसीद • V8.9", (width / 2).toFloat(), 115f, subTitlePaint)
+        canvas.drawText("Official Delivery Receipt • V9.2", (width / 2).toFloat(), 112f, subTitlePaint)
 
         val phonePaint = Paint().apply {
-            color = Color.rgb(209, 196, 233)
-            textSize = 17f
+            color = Color.rgb(220, 252, 231)
+            textSize = 16f
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("संपर्क: ${data.businessPhone} ${if (data.upiId.isNotBlank()) "• UPI: ${data.upiId}" else ""}", (width / 2).toFloat(), 148f, phonePaint)
+        canvas.drawText("Phone: ${data.businessPhone} ${if (data.upiId.isNotBlank()) "• UPI: ${data.upiId}" else ""}", (width / 2).toFloat(), 146f, phonePaint)
 
         var y = 220f
         val textPaint = Paint().apply {
@@ -191,6 +191,25 @@ object ReceiptImageGenerator {
             drawRow("पेशगी / जमा (Advance):", CalculationEngine.formatMoney(data.advance), greenPaint)
         }
 
+        // AI Insight Banner
+        y += 10f
+        canvas.drawLine(50f, y, (width - 50).toFloat(), y, linePaint)
+        y += 30f
+
+        val aiInsightPaint = Paint().apply {
+            color = Color.rgb(22, 101, 52)
+            textSize = 17f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val insightText = if (data.remainingDue <= 0.0) {
+            "💡 AI Insight: Regular daily delivery • 100% on-time payment track record."
+        } else {
+            "💡 AI Insight: Regular daily customer • Pending balance scheduled for collection."
+        }
+        canvas.drawText(insightText, 50f, y, aiInsightPaint)
+        y += 10f
+
         // Optional QR Code
         if (qrBitmap != null) {
             y += 15f
@@ -204,7 +223,7 @@ object ReceiptImageGenerator {
             y += qrSize + 22f
 
             val qrLabelPaint = Paint().apply {
-                color = Color.rgb(74, 20, 140)
+                color = Color.rgb(22, 101, 52)
                 textSize = 17f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 isAntiAlias = true
@@ -214,14 +233,14 @@ object ReceiptImageGenerator {
             y += 24f
         }
 
-        // Footer note
+        // Footer note (Clean Professional Neutral)
         val footerPaint = Paint().apply {
-            color = Color.rgb(148, 163, 184)
+            color = Color.rgb(100, 116, 139)
             textSize = 15f
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("शाहबुद्दीन डेयरी सेवा में सदैव समर्पित • सुरक्षित व्यावसायिक रिकॉर्ड", (width / 2).toFloat(), (height - 35).toFloat(), footerPaint)
+        canvas.drawText("SHAHBUDDIN DAIRY • 96, Gulab Nagar, Bareilly • Ph: 9258263340", (width / 2).toFloat(), (height - 35).toFloat(), footerPaint)
 
         return bitmap
     }

@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Payments
@@ -47,6 +50,8 @@ import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.VerticalAlignBottom
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -73,16 +78,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shahbuddindairy.app.DairyApplication
@@ -1250,35 +1261,229 @@ fun RouteReorderDialog(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     var currentList by remember(initialCustomers) { mutableStateOf(initialCustomers) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SwapVert, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(22.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Route Order Manager", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+    var searchQuery by remember { mutableStateOf("") }
+    var customerForPositionJump by remember { mutableStateOf<Pair<CustomerEntity, Int>?>(null) }
+    var targetPositionInput by remember { mutableStateOf("") }
+
+    var draggingCustomerId by remember { mutableStateOf<Long?>(null) }
+    var dragAccumulatedY by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+
+    // Position Jump Dialog
+    if (customerForPositionJump != null) {
+        val (targetCustomer, currentPos) = customerForPositionJump!!
+        AlertDialog(
+            onDismissRequest = { customerForPositionJump = null },
+            title = {
+                Text("Set Route Position", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Move \"${targetCustomer.name}\" to new position:",
+                        fontSize = 13.sp,
+                        color = colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = targetPositionInput,
+                        onValueChange = { targetPositionInput = it.filter { ch -> ch.isDigit() } },
+                        label = { Text("Position # (1 - ${currentList.size})") },
+                        placeholder = { Text("e.g. 1") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Currently at position #${currentPos + 1}",
+                        fontSize = 11.5.sp,
+                        color = colorScheme.primary
+                    )
                 }
-                Text(
-                    text = "${currentList.size} Customers",
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colorScheme.onSurfaceVariant
-                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newPos = targetPositionInput.toIntOrNull()
+                        if (newPos != null && newPos in 1..currentList.size) {
+                            val curIdx = currentList.indexOfFirst { it.id == targetCustomer.id }
+                            if (curIdx >= 0) {
+                                val mutable = currentList.toMutableList()
+                                val item = mutable.removeAt(curIdx)
+                                val destination = (newPos - 1).coerceIn(0, mutable.size)
+                                mutable.add(destination, item)
+                                currentList = mutable
+                                customerForPositionJump = null
+                                coroutineScope.launch {
+                                    listState.animateScrollToItem(destination)
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
+                ) {
+                    Text("Move", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { customerForPositionJump = null }) {
+                    Text("Cancel")
+                }
             }
-        },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Use ▲ / ▼ to reorder delivery route. Route # updates without changing Customer IDs.",
-                    fontSize = 11.5.sp,
-                    color = colorScheme.onSurfaceVariant
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true
+        )
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            shape = RoundedCornerShape(18.dp),
+            color = colorScheme.surface,
+            tonalElevation = 6.dp,
+            shadowElevation = 12.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(14.dp)
+            ) {
+                // Top Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.SwapVert,
+                                contentDescription = null,
+                                tint = colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Route Order Manager",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.5.sp,
+                                color = colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${currentList.size} Customers • Drag handle ya 🔝 use karein",
+                                fontSize = 11.5.sp,
+                                color = colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Default.Clear,
+                            contentDescription = "Close",
+                            tint = colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Search Bar inside Dialog
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search customer by name, ID or mohalla...", fontSize = 12.5.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null, tint = colorScheme.primary, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        unfocusedContainerColor = colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                    )
                 )
+
+                // Quick Match jump buttons if search is active
+                if (searchQuery.isNotBlank()) {
+                    val matching = currentList.filter {
+                        it.name.contains(searchQuery, ignoreCase = true) ||
+                        it.id.toString().contains(searchQuery) ||
+                        it.mohalla.contains(searchQuery, ignoreCase = true)
+                    }
+                    if (matching.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Matches (${matching.size}):",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colorScheme.primary
+                            )
+                            matching.take(6).forEach { cust ->
+                                val idx = currentList.indexOf(cust)
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = colorScheme.primaryContainer,
+                                    modifier = Modifier.clickable {
+                                        coroutineScope.launch {
+                                            listState.animateScrollToItem(idx)
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = "#${idx + 1} ${cust.name}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Sort Presets Bar
@@ -1293,7 +1498,7 @@ fun RouteReorderDialog(
                         color = colorScheme.surfaceVariant,
                         modifier = Modifier.clickable { currentList = initialCustomers }
                     ) {
-                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(13.dp))
                             Spacer(modifier = Modifier.width(3.dp))
                             Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -1304,57 +1509,145 @@ fun RouteReorderDialog(
                         color = colorScheme.surfaceVariant,
                         modifier = Modifier.clickable { currentList = currentList.sortedBy { it.name } }
                     ) {
-                        Text("Sort: Name", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                        Text("Sort: Name", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
                     }
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = colorScheme.surfaceVariant,
                         modifier = Modifier.clickable { currentList = currentList.sortedWith(compareBy({ it.mohalla }, { it.name })) }
                     ) {
-                        Text("Sort: Mohalla", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                        Text("Sort: Mohalla", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
                     }
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = colorScheme.surfaceVariant,
                         modifier = Modifier.clickable { currentList = currentList.sortedBy { it.id } }
                     ) {
-                        Text("Sort: ID", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+                        Text("Sort: ID", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
                     }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Reorderable list
+                // Reorderable list inside Box taking remaining vertical weight
                 Box(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .height(340.dp)
-                        .background(colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                        .border(1.dp, colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                        .background(colorScheme.surfaceVariant.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
                         .padding(6.dp)
                 ) {
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(currentList, key = { it.id }) { customer ->
                             val index = currentList.indexOf(customer)
+                            val isBeingDragged = draggingCustomerId == customer.id
+                            val isMatch = searchQuery.isNotBlank() && (
+                                customer.name.contains(searchQuery, ignoreCase = true) ||
+                                customer.id.toString().contains(searchQuery) ||
+                                customer.mohalla.contains(searchQuery, ignoreCase = true)
+                            )
+
                             Card(
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-                                border = BorderStroke(0.5.dp, colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth()
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = when {
+                                        isBeingDragged -> colorScheme.primaryContainer
+                                        isMatch -> colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                                        else -> colorScheme.surface
+                                    }
+                                ),
+                                border = BorderStroke(
+                                    if (isBeingDragged || isMatch) 1.5.dp else 0.5.dp,
+                                    if (isBeingDragged) colorScheme.primary else if (isMatch) colorScheme.secondary else colorScheme.outlineVariant
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .graphicsLayer {
+                                        if (isBeingDragged) {
+                                            translationY = dragAccumulatedY.coerceIn(-150f, 150f)
+                                            shadowElevation = 10.dp.toPx()
+                                            scaleX = 1.02f
+                                            scaleY = 1.02f
+                                        }
+                                    }
                             ) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // Drag Handle
                                     Box(
                                         modifier = Modifier
-                                            .size(26.dp)
+                                            .size(34.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                            .pointerInput(customer.id) {
+                                                detectDragGestures(
+                                                    onDragStart = {
+                                                        draggingCustomerId = customer.id
+                                                        dragAccumulatedY = 0f
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        dragAccumulatedY += dragAmount.y
+                                                        val curIdx = currentList.indexOfFirst { it.id == customer.id }
+                                                        if (curIdx >= 0) {
+                                                            val cardHeightPx = with(density) { 64.dp.toPx() }
+                                                            val threshold = cardHeightPx * 0.65f
+                                                            if (dragAccumulatedY > threshold && curIdx < currentList.size - 1) {
+                                                                val mutable = currentList.toMutableList()
+                                                                val itm = mutable.removeAt(curIdx)
+                                                                mutable.add(curIdx + 1, itm)
+                                                                currentList = mutable
+                                                                dragAccumulatedY -= cardHeightPx
+                                                            } else if (dragAccumulatedY < -threshold && curIdx > 0) {
+                                                                val mutable = currentList.toMutableList()
+                                                                val itm = mutable.removeAt(curIdx)
+                                                                mutable.add(curIdx - 1, itm)
+                                                                currentList = mutable
+                                                                dragAccumulatedY += cardHeightPx
+                                                            }
+                                                        }
+                                                    },
+                                                    onDragEnd = {
+                                                        draggingCustomerId = null
+                                                        dragAccumulatedY = 0f
+                                                    },
+                                                    onDragCancel = {
+                                                        draggingCustomerId = null
+                                                        dragAccumulatedY = 0f
+                                                    }
+                                                )
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DragHandle,
+                                            contentDescription = "Drag to reorder",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(6.dp))
+
+                                    // Position Badge (Clickable to jump position directly)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
                                             .clip(CircleShape)
-                                            .background(colorScheme.primaryContainer),
+                                            .background(colorScheme.primaryContainer)
+                                            .clickable {
+                                                customerForPositionJump = Pair(customer, index)
+                                                targetPositionInput = (index + 1).toString()
+                                            },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
@@ -1367,21 +1660,47 @@ fun RouteReorderDialog(
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
+                                    // Customer Details
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = customer.name,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.5.sp,
+                                            fontSize = 13.sp,
                                             color = colorScheme.onSurface
                                         )
                                         Text(
-                                            text = "ID: #${customer.id} • ${customer.defaultLiters}L",
+                                            text = "ID: #${customer.id} • ${customer.defaultLiters}L" +
+                                                   if (customer.mohalla.isNotBlank()) " • ${customer.mohalla}" else "",
                                             fontSize = 10.5.sp,
                                             color = colorScheme.onSurfaceVariant
                                         )
                                     }
 
-                                    // Up arrow
+                                    // Move to TOP (🔝) Button
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val mutable = currentList.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(0, item)
+                                                currentList = mutable
+                                                coroutineScope.launch {
+                                                    listState.animateScrollToItem(0)
+                                                }
+                                            }
+                                        },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.VerticalAlignTop,
+                                            contentDescription = "Move to Top (First)",
+                                            tint = if (index > 0) colorScheme.primary else colorScheme.outlineVariant,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+
+                                    // Up arrow (1 step)
                                     IconButton(
                                         onClick = {
                                             if (index > 0) {
@@ -1394,10 +1713,15 @@ fun RouteReorderDialog(
                                         enabled = index > 0,
                                         modifier = Modifier.size(28.dp)
                                     ) {
-                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                        Icon(
+                                            Icons.Default.ArrowUpward,
+                                            contentDescription = "Move Up",
+                                            tint = if (index > 0) colorScheme.onSurface else colorScheme.outlineVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
                                     }
 
-                                    // Down arrow
+                                    // Down arrow (1 step)
                                     IconButton(
                                         onClick = {
                                             if (index < currentList.size - 1) {
@@ -1410,30 +1734,75 @@ fun RouteReorderDialog(
                                         enabled = index < currentList.size - 1,
                                         modifier = Modifier.size(28.dp)
                                     ) {
-                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                        Icon(
+                                            Icons.Default.ArrowDownward,
+                                            contentDescription = "Move Down",
+                                            tint = if (index < currentList.size - 1) colorScheme.onSurface else colorScheme.outlineVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    // Move to BOTTOM (⏬) Button
+                                    IconButton(
+                                        onClick = {
+                                            if (index < currentList.size - 1) {
+                                                val mutable = currentList.toMutableList()
+                                                val item = mutable.removeAt(index)
+                                                mutable.add(item)
+                                                currentList = mutable
+                                                coroutineScope.launch {
+                                                    listState.animateScrollToItem(currentList.size - 1)
+                                                }
+                                            }
+                                        },
+                                        enabled = index < currentList.size - 1,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.VerticalAlignBottom,
+                                            contentDescription = "Move to Bottom",
+                                            tint = if (index < currentList.size - 1) colorScheme.secondary else colorScheme.outlineVariant,
+                                            modifier = Modifier.size(17.dp)
+                                        )
                                     }
                                 }
                             }
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Bottom Action Buttons (Cancel & Save)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Cancel", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Button(
+                        onClick = { onSaveOrder(currentList) },
+                        colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
+                        modifier = Modifier
+                            .weight(2f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("SAVE ROUTE ORDER", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                    }
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onSaveOrder(currentList) },
-                colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text("SAVE ROUTE ORDER", fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        },
-        shape = RoundedCornerShape(16.dp),
-        containerColor = colorScheme.surface
-    )
+        }
+    }
 }

@@ -718,9 +718,9 @@ fun CustomerLedgerCard(item: CustomerLedgerSummary) {
                             val cleanPhone = phone.replace("+", "").replace("-", "").replace(" ", "").trim()
                             val fullPhone = if (cleanPhone.length == 10) "91$cleanPhone" else cleanPhone
                             val dueMsg = if (item.netBalance > 0) {
-                                "नमस्ते ${item.customer.name} जी,\n\nशाहबुद्दीन डेयरी की तरफ से आपके दूध का कुल हिसाब ₹${item.netBalance} बकाया (बाकी) है।\nकुल दूध: ${item.totalLiters} लीटर\nकुल बिल: ₹${item.totalBilled}\nकुल जमा: ₹${item.totalPaid}\n\nकृपया समय पर भुगतान करने की कृपा करें।\nधन्यवाद!\nशाहबुद्दीन डेयरी, गुलाब नगर, बरेली\nसंपर्क: 9897259461"
+                                "SHAHBUDDIN DAIRY (Bareilly)\nOfficial Account Summary\n━━━━━━━━━━━━━━━━━━━━\nCustomer: ${item.customer.name}\nTotal Milk: ${item.totalLiters} L\nTotal Bill: ₹${item.totalBilled}\nTotal Paid: ₹${item.totalPaid}\nOutstanding Due: ₹${item.netBalance}\n━━━━━━━━━━━━━━━━━━━━\nKindly arrange payment. Thank you.\nShahbuddin Dairy • Ph: 9258263340\nGulab Nagar, Bareilly"
                             } else {
-                                "नमस्ते ${item.customer.name} जी,\n\nशाहबुद्दीन डेयरी की तरफ से आपके दूध का कुल हिसाब:\nकुल दूध: ${item.totalLiters} लीटर\nकुल बिल: ₹${item.totalBilled}\nकुल जमा: ₹${item.totalPaid}\nशुद्ध शेष: ${if (item.netBalance < 0) "₹${-item.netBalance} एडवांस जमा" else "बेबाक ✓"}\n\nधन्यवाद!\nशाहबुद्दीन डेयरी, गुलाब नगर, बरेली"
+                                "SHAHBUDDIN DAIRY (Bareilly)\nOfficial Account Summary\n━━━━━━━━━━━━━━━━━━━━\nCustomer: ${item.customer.name}\nTotal Milk: ${item.totalLiters} L\nTotal Bill: ₹${item.totalBilled}\nTotal Paid: ₹${item.totalPaid}\nNet Balance: ${if (item.netBalance < 0) "₹${-item.netBalance} (Advance)" else "Settled ✓"}\n━━━━━━━━━━━━━━━━━━━━\nThank you for your business.\nShahbuddin Dairy • Ph: 9258263340\nGulab Nagar, Bareilly"
                             }
                             val encoded = java.net.URLEncoder.encode(dueMsg, "UTF-8")
                             val uri = Uri.parse("https://api.whatsapp.com/send?phone=$fullPhone&text=$encoded")

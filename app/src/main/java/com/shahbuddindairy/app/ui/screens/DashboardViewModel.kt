@@ -26,6 +26,11 @@ data class RouteProgressStat(
     val percent: Int
 )
 
+data class TopAccountItem(
+    val customer: CustomerEntity,
+    val amount: Double
+)
+
 data class DashboardUiState(
     val selectedDate: String = CalculationEngine.todayStr(),
     val totalMilkDispatched: Double = 0.0,
@@ -40,6 +45,14 @@ data class DashboardUiState(
     val nagaCount: Int = 0,
     val altDayCount: Int = 0,
     val routeProgressStats: List<RouteProgressStat> = emptyList(),
+    val tickerHeadlines: List<String> = emptyList(),
+    val topDebtors: List<TopAccountItem> = emptyList(),
+    val topAdvances: List<TopAccountItem> = emptyList(),
+    val highestPaymentCustomer: String = "",
+    val highestPaymentAmount: Double = 0.0,
+    val canCapacityLoaded: Double = 50.0,
+    val estimatedProfitToday: Double = 0.0,
+    val aiAdvice: String = "",
     val isLoading: Boolean = false
 )
 
@@ -101,14 +114,65 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         // Financial balances across entire market (strictly unified with PBS)
+        val debtorList = mutableListOf<TopAccountItem>()
+        val advanceList = mutableListOf<TopAccountItem>()
         var totalMarketDue = 0.0
         var totalAdvance = 0.0
         for (c in customers) {
             val net = CalculationEngine.calculateCustomerBalance(c.id, allDeliveries, allPayments)
             val pbs = repository.getPbsPending(c.id)
             val totalBal = CalculationEngine.round2(net + pbs)
-            if (totalBal > 0) totalMarketDue += totalBal
-            else if (totalBal < 0) totalAdvance += (-totalBal)
+            if (totalBal > 0) {
+                totalMarketDue += totalBal
+                debtorList.add(TopAccountItem(c, totalBal))
+            } else if (totalBal < 0) {
+                totalAdvance += (-totalBal)
+                advanceList.add(TopAccountItem(c, -totalBal))
+            }
+        }
+        debtorList.sortByDescending { it.amount }
+        advanceList.sortByDescending { it.amount }
+        val top3Debtors = debtorList.take(3)
+        val top3Advances = advanceList.take(3)
+
+        // Find highest payment today
+        var highestPayCust = ""
+        var highestPayAmt = 0.0
+        for (d in deliveries.filter { it.date == date && !it.isVoid }) {
+            val p = d.paidCash + d.paidOnline
+            if (p > highestPayAmt) {
+                highestPayAmt = p
+                highestPayCust = customers.find { it.id == d.customerId }?.name ?: "Customer #${d.customerId}"
+            }
+        }
+        for (p in paymentsToday) {
+            if (p.amount > highestPayAmt) {
+                highestPayAmt = p.amount
+                highestPayCust = customers.find { it.id == p.customerId }?.name ?: "Customer #${p.customerId}"
+            }
+        }
+
+        // Ticker headlines
+        val headlines = mutableListOf<String>()
+        if (top3Debtors.isNotEmpty()) {
+            val debtorStr = top3Debtors.joinToString(" • ") { "${it.customer.name}: ₹%,.0f Due".format(it.amount) }
+            headlines.add("🚨 PAYMENT ALERT: $debtorStr")
+        }
+        headlines.add("🥛 SUPPLY UPDATE: %.2f L delivered today (%d served, %d naaga)".format(totalMilk, servedCount, nagaCount))
+        val totalColl = totalCash + totalOnline
+        headlines.add("💰 COLLECTION UPDATE: ₹%,.0f collected today (Cash: ₹%,.0f • Online: ₹%,.0f)".format(totalColl, totalCash, totalOnline))
+        if (altDayCount > 0) {
+            headlines.add("🔵 ALTERNATE REMINDER: %d customers on alternate off schedule today".format(altDayCount))
+        }
+        if (highestPayAmt > 0) {
+            headlines.add("⭐ HIGHEST PAYMENT TODAY: ₹%,.0f received from $highestPayCust".format(highestPayAmt))
+        }
+
+        val profitEst = CalculationEngine.round2(totalMilk * 15.0) // Average margin ₹15/L
+        val advice = when {
+            servedCount == 0 -> "Ready for morning route. ${customers.size} active customers scheduled."
+            pendingCount > 0 -> "Route in progress: $pendingCount remaining customers, $servedCount completed."
+            else -> "Route complete! All deliveries verified. Total collection ₹%,.0f recorded.".format(totalColl)
         }
 
         // Route wise breakdown
@@ -165,6 +229,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             nagaCount = nagaCount,
             altDayCount = altDayCount,
             routeProgressStats = routeStats,
+            tickerHeadlines = headlines,
+            topDebtors = top3Debtors,
+            topAdvances = top3Advances,
+            highestPaymentCustomer = highestPayCust,
+            highestPaymentAmount = highestPayAmt,
+            canCapacityLoaded = 50.0,
+            estimatedProfitToday = profitEst,
+            aiAdvice = advice,
             isLoading = false
         )
     }.stateIn(

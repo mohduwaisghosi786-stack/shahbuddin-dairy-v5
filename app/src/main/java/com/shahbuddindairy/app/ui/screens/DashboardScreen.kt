@@ -2,6 +2,7 @@ package com.shahbuddindairy.app.ui.screens
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,18 +45,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.shahbuddindairy.app.data.model.CustomerEntity
 import com.shahbuddindairy.app.domain.CalculationEngine
 import com.shahbuddindairy.app.ui.components.AppTopHeader
 import com.shahbuddindairy.app.ui.theme.StatusAmber
 import com.shahbuddindairy.app.ui.theme.StatusRed
+import com.shahbuddindairy.app.whatsapp.WhatsAppReportManager
 
 @Composable
 fun DashboardScreen(
@@ -78,6 +83,8 @@ fun DashboardScreen(
             subtitle = "डैशबोर्ड • ${CalculationEngine.formatDateDisplay(uiState.selectedDate)}",
             marketDue = uiState.totalMarketDue
         )
+
+        val context = LocalContext.current
 
         // DATE SELECTOR BAR WITH QUICK PRESETS
         Surface(
@@ -139,6 +146,9 @@ fun DashboardScreen(
                 }
             }
         }
+
+        // LIVE BREAKING NEWS TICKER (V9.2)
+        LiveBreakingNewsTicker(headlines = uiState.tickerHeadlines)
 
         if (uiState.isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -205,7 +215,37 @@ fun DashboardScreen(
                     )
                 }
 
-                // 2. LIVE ROUTE DELIVERY PROGRESS CARD
+                // 2. LIVE MILK CAN INVENTORY & LEAKAGE METER (V9.2)
+                MilkCanInventoryMeter(
+                    loadedLiters = uiState.canCapacityLoaded,
+                    dispatchedLiters = uiState.totalMilkDispatched
+                )
+
+                // 3. DAILY ESTIMATED PROFIT & MARGIN METER (V9.2)
+                DailyEstimatedProfitCard(
+                    dispatchedLiters = uiState.totalMilkDispatched,
+                    estimatedProfit = uiState.estimatedProfitToday
+                )
+
+                // 4. AI MUNSHI BUSINESS INSIGHTS PANEL (V9.2)
+                AiBusinessInsightsPanel(
+                    advice = uiState.aiAdvice,
+                    topDebtors = uiState.topDebtors,
+                    topAdvances = uiState.topAdvances,
+                    highestCustomer = uiState.highestPaymentCustomer,
+                    highestAmount = uiState.highestPaymentAmount,
+                    onRemindCustomer = { cust, amt ->
+                        WhatsAppReportManager.sendGentleDueReminder(
+                            context = context,
+                            customerPhone = cust.phone,
+                            customerName = cust.name,
+                            dueAmount = amt,
+                            upiId = "9258263340@upi"
+                        )
+                    }
+                )
+
+                // 5. LIVE ROUTE DELIVERY PROGRESS CARD
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -521,84 +561,355 @@ private fun DeliveryHealthPill(label: String, count: Int, color: Color, bgColor:
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun DashboardMetricCard(
-    title: String,
-    value: String,
-    subValue: String,
-    icon: ImageVector,
-    accentColor: Color,
+private fun LiveBreakingNewsTicker(
+    headlines: List<String>,
     modifier: Modifier = Modifier
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, colorScheme.outlineVariant)
+    if (headlines.isEmpty()) return
+    val combinedText = remember(headlines) {
+        headlines.joinToString("   ★   ")
+    }
+    Surface(
+        color = Color(0xFFFEF2F2),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFECACA)),
+        modifier = modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFFDC2626)
             ) {
                 Text(
-                    text = title,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colorScheme.onSurfaceVariant
+                    text = "LIVE",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(15.dp))
-                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = value,
-                fontSize = 19.sp,
+                text = combinedText,
+                fontSize = 11.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = accentColor
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subValue,
-                fontSize = 10.5.sp,
-                color = colorScheme.onSurfaceVariant
+                color = Color(0xFF991B1B),
+                maxLines = 1,
+                modifier = Modifier
+                    .weight(1f)
+                    .basicMarquee(iterations = Int.MAX_VALUE)
             )
         }
     }
 }
 
 @Composable
-private fun DeliveryHealthPill(label: String, count: Int, color: Color) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = color.copy(alpha = 0.12f)
+private fun MilkCanInventoryMeter(
+    loadedLiters: Double,
+    dispatchedLiters: Double
+) {
+    val remaining = (loadedLiters - dispatchedLiters).coerceAtLeast(0.0)
+    val pct = if (loadedLiters > 0) ((dispatchedLiters / loadedLiters) * 100).toInt().coerceIn(0, 100) else 0
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🥛", fontSize = 16.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "मिल्क केन इन्वेंट्री (Milk Can Meter)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF166534)
+                    )
+                }
+                Text(
+                    text = "$pct% वितरित",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF15803D)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LinearProgressIndicator(
+                progress = { (pct / 100f).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp)),
+                color = Color(0xFF16A34A),
+                trackColor = Color(0xFFDCFCE7)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "लोड किया: %.1f L".format(loadedLiters),
+                    fontSize = 11.5.sp,
+                    color = Color(0xFF166534),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "वितरित: %.2f L".format(dispatchedLiters),
+                    fontSize = 11.5.sp,
+                    color = Color(0xFF15803D),
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "केन में शेष: %.2f L".format(remaining),
+                    fontSize = 11.5.sp,
+                    color = if (remaining < 2.0) Color(0xFFDC2626) else Color(0xFF166534),
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyEstimatedProfitCard(
+    dispatchedLiters: Double,
+    estimatedProfit: Double
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = "$label: $count",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = color
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFDCFCE7)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("📈", fontSize = 18.sp)
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "अनुमानित शुद्ध लाभ (Estimated Profit)",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                    Text(
+                        text = "दूध: %.2f L • अनुमानित मार्जिन ₹15/L".format(dispatchedLiters),
+                        fontSize = 11.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFFDCFCE7),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC))
+            ) {
+                Text(
+                    text = "+₹%,.0f".format(estimatedProfit),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color(0xFF166534),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiBusinessInsightsPanel(
+    advice: String,
+    topDebtors: List<TopAccountItem>,
+    topAdvances: List<TopAccountItem>,
+    highestCustomer: String,
+    highestAmount: Double,
+    onRemindCustomer: (CustomerEntity, Double) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("💡", fontSize = 16.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "AI मुंशी व्यापार इनसाइट्स (Insights)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFDCFCE7),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC))
+                ) {
+                    Text(
+                        text = "100% Offline AI",
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF166534),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            if (advice.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "मुंशी सलाह: $advice",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1E40AF),
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+
+            if (topDebtors.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "शीर्ष बकायादार (Top Debtors) — 1-टैप तकादा:",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFB91C1C)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                topDebtors.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.customer.name,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                text = "बकाया: ₹%,.0f".format(item.amount),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFDC2626)
+                            )
+                        }
+                        Button(
+                            onClick = { onRemindCustomer(item.customer, item.amount) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("💬 तकादा", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+
+            if (topAdvances.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "शीर्ष अग्रिम ग्राहक (Top Advances):",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF15803D)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                topAdvances.forEach { item ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.customer.name,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A)
+                        )
+                        Text(
+                            text = "जमा एडवांस: ₹%,.0f".format(item.amount),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF15803D)
+                        )
+                    }
+                }
+            }
+
+            if (highestAmount > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFFEF3C7))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("⭐", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "आज का सबसे बड़ा भुगतान: $highestCustomer से ₹%,.0f प्राप्त".format(highestAmount),
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF92400E)
+                    )
+                }
+            }
         }
     }
 }

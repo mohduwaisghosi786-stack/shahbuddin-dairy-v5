@@ -1968,9 +1968,9 @@ fun PreCallCueCardDialog(
     }
 
     val suggestedScript = if (totalDue > 0) {
-        "\"नमस्ते ${customer.name} भाई, शाहबुद्दीन डेयरी से। आपका ₹%.0f बकाया है, कल सुबह हिसाब करवा लें तो बड़ी मेहरबानी होगी।\"".format(totalDue)
+        "\"SHAHBUDDIN DAIRY: ${customer.name} जी, वर्तमान बकाया हिसाब ₹%.0f है। कृपया सुविधानुसार भुगतान कर दें। धन्यवाद।\"".format(totalDue)
     } else {
-        "\"नमस्ते ${customer.name} भाई, आपका हिसाब बिल्कुल बराबर है। किसी अन्य सेवा के लिए संपर्क करें।\""
+        "\"SHAHBUDDIN DAIRY: ${customer.name} जी, आपका दूध का हिसाब पूर्णतः चुकता है। धन्यवाद।\""
     }
 
     AlertDialog(
